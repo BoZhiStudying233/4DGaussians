@@ -55,7 +55,7 @@ class SceneInfo(NamedTuple):
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
-        cam_centers = np.hstack(cam_centers)
+        cam_centers = np.hstack(cam_centers)#将多个相机的中心点按列堆叠在一起，以便后续计算这些中心点的平均值和最大距离。
         avg_cam_center = np.mean(cam_centers, axis=1, keepdims=True)
         center = avg_cam_center
         dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True)
@@ -68,7 +68,10 @@ def getNerfppNorm(cam_info):
         W2C = getWorld2View2(cam.R, cam.T)
         C2W = np.linalg.inv(W2C)
         cam_centers.append(C2W[:3, 3:4])
-
+        #C2W = [ R | T ]
+        #      [ 0 | 1 ]
+        #通过 C2W[:3, 3:4]，我们提取了这个矩阵的第4列（索引为3）的前3行，也就是平移部分。这一部分正是相机中心在世界坐标系中的位置。
+#
     center, diagonal = get_center_and_diag(cam_centers)
     radius = diagonal * 1.1
 
@@ -223,7 +226,7 @@ def generateCamerasFromTransforms(path, template_transformsfile, extension, maxt
         return c2w
     cam_infos = []
     # generate render poses and times
-    render_poses = torch.stack([pose_spherical(angle, -30.0, 4.0) for angle in np.linspace(-180,180,160+1)[:-1]], 0)
+    render_poses = torch.stack([pose_spherical(angle, -30.0, 4.0) for angle in np.linspace(-180,180,160+1)[:-1]], 0)#成一个从 -180 到 180 包含 161 个等间距元素的数组。
     render_times = torch.linspace(0,maxtime,render_poses.shape[0])
     with open(os.path.join(path, template_transformsfile)) as json_file:
         template_json = json.load(json_file)
@@ -262,7 +265,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
         try:
-            fovx = contents["camera_angle_x"]
+            fovx = contents["camera_angle_x"]#Field of View in X direction表示相机在水平方向上的视场角
         except:
             fovx = focal2fov(contents['fl_x'],contents['w'])
         frames = contents["frames"]
@@ -287,7 +290,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
             image = PILtoTorch(image,(800,800))
             fovy = focal2fov(fov2focal(fovx, image.shape[1]), image.shape[2])
-            FovY = fovy 
+            FovY = fovy
             FovX = fovx
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
@@ -317,7 +320,9 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
     print("Reading Test Transforms")
     test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension, timestamp_mapper)
     print("Generating Video Transforms")
-    video_cam_infos = generateCamerasFromTransforms(path, "transforms_train.json", extension, max_time)
+    video_cam_infos = generateCamerasFromTransforms(path, "transforms_train.json", extension, max_time)#注意这个函数跟上面两个不一样，是generate！！！
+    #max_time就是所有训练集和测试机的图片中最后出现的图片的时间戳;这段函数用于生成相机的姿态，便于后续渲染的时候用
+    
     if not eval:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
@@ -372,7 +377,7 @@ def format_infos(dataset,split):
 
 def readHyperDataInfos(datadir,use_bg_points,eval):
     train_cam_infos = Load_hyper_data(datadir,0.5,use_bg_points,split ="train")
-    test_cam_infos = Load_hyper_data(datadir,0.5,use_bg_points,split="test")
+    test_cam_infos = Load_hyper_data(datadir,0.5,use_bg_points,split="test")#划分数据集
     print("load finished")
     train_cam = format_hyper_data(train_cam_infos,"train")
     print("format finished")

@@ -59,7 +59,7 @@ class Load_hyper_data(Dataset):
         self.all_img = dataset_json['ids']
         self.val_id = dataset_json['val_ids']
         self.split = split
-        if len(self.val_id) == 0:
+        if len(self.val_id) == 0:#如果测试集没东西，就自己划分测试集和训练集
             self.i_train = np.array([i for i in np.arange(len(self.all_img)) if
                             (i%4 == 0)])
             self.i_test = self.i_train+2

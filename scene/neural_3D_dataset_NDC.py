@@ -265,6 +265,8 @@ class Neural3D_NDC_Dataset(Dataset):
         videos = glob.glob(os.path.join(self.root_dir, "cam*.mp4"))
         videos = sorted(videos)
         # breakpoint()
+        # print(f"Length of videos: {len(videos)}")
+        # print(f"Shape of poses_arr: {poses_arr.shape[0]}")
         assert len(videos) == poses_arr.shape[0]
 
         H, W, focal = poses[0, :, -1]

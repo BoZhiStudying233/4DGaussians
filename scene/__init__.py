@@ -42,17 +42,19 @@ class Scene:
         self.train_cameras = {}
         self.test_cameras = {}
         self.video_cameras = {}
+
+        #下面是根据不同数据集含有的文件来判断数据集的类型，并调用相应的函数进行读取
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.llffhold)
             dataset_type="colmap"
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
-            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, args.extension)
+            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, args.extension)  # 返回了scene_info，包含cam_info，点云，max_time等一系列信息
             dataset_type="blender"
         elif os.path.exists(os.path.join(args.source_path, "poses_bounds.npy")):
             scene_info = sceneLoadTypeCallbacks["dynerf"](args.source_path, args.white_background, args.eval)
             dataset_type="dynerf"
-        elif os.path.exists(os.path.join(args.source_path,"dataset.json")):
+        elif os.path.exists(os.path.join(args.source_path,"dataset.json")):#hypernerf数据集属于此类
             scene_info = sceneLoadTypeCallbacks["nerfies"](args.source_path, False, args.eval)
             dataset_type="nerfies"
         elif os.path.exists(os.path.join(args.source_path,"train_meta.json")):
@@ -80,7 +82,7 @@ class Scene:
             print("add points.")
             # breakpoint()
             scene_info = scene_info._replace(point_cloud=add_points(scene_info.point_cloud, xyz_max=xyz_max, xyz_min=xyz_min))
-        self.gaussians._deformation.deformation_net.set_aabb(xyz_max,xyz_min)
+        self.gaussians._deformation.deformation_net.set_aabb(xyz_max,xyz_min)#用包围盒包住点云
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,
                                                            "point_cloud",
@@ -91,7 +93,7 @@ class Scene:
                                                     "iteration_" + str(self.loaded_iter),
                                                    ))
         else:
-            self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)
+            self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)#创建高斯模型
 
     def save(self, iteration, stage):
         if stage == "coarse":

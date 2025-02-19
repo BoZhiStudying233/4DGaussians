@@ -61,7 +61,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
-    viewpoint_stack = None
+    viewpoint_stack = None  #用于存储训练过程中使用的摄像机视角的列表
     ema_loss_for_log = 0.0
     ema_psnr_for_log = 0.0
 
@@ -82,7 +82,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     # 
     batch_size = opt.batch_size
     print("data loading done")
-    if opt.dataloader:
+    if opt.dataloader:#dataloader 默认为None
         viewpoint_stack = scene.getTrainCameras()
         if opt.custom_sampler is not None:
             sampler = FineSampler(viewpoint_stack)
@@ -92,7 +92,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=batch_size,shuffle=True,num_workers=16,collate_fn=list)
             random_loader = True
         loader = iter(viewpoint_stack_loader)
-    
+
     
     # dynerf, zerostamp_init
     # breakpoint()
@@ -108,7 +108,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     for iteration in range(first_iter, final_iter+1):        
         if network_gui.conn == None:
             network_gui.try_connect()
+            print("conneting_gui")
         while network_gui.conn != None:
+            print("conneted_gui")
             try:
                 net_image_bytes = None
                 custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
@@ -132,7 +134,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             except Exception as e:
                 print(e)
                 network_gui.conn = None
-
+        
         iter_start.record()
 
         gaussians.update_learning_rate(iteration)
@@ -297,10 +299,10 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, expname):
     # first_iter = 0
     tb_writer = prepare_output_and_logger(expname)
-    gaussians = GaussianModel(dataset.sh_degree, hyper)
+    gaussians = GaussianModel(dataset.sh_degree, hyper) #建立了gaussian model，里面包含了xyz，rgb，不透明度等信息
     dataset.model_path = args.model_path
     timer = Timer()
-    scene = Scene(dataset, gaussians, load_coarse=None)
+    scene = Scene(dataset, gaussians, load_coarse=None)#scene的实例包含了非常多的属性，包括cam_infos，点云，最大时间等等
     timer.start()
     scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations,
                              checkpoint_iterations, checkpoint, debug_from,
@@ -309,7 +311,7 @@ def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, c
                          checkpoint_iterations, checkpoint, debug_from,
                          gaussians, scene, "fine", tb_writer, opt.iterations,timer)
 
-def prepare_output_and_logger(expname):    
+def prepare_output_and_logger(expname):    #建立了output的文件夹，存储一些cfg，如本次训练的参数等等。
     if not args.model_path:
         # if os.getenv('OAR_JOB_ID'):
         #     unique_str=os.getenv('OAR_JOB_ID')
@@ -427,6 +429,6 @@ if __name__ == "__main__":
     network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, args.expname)
-
+    #数据集的地址  ，  模型的参数， 优化器的参数  ，  渲染和优化过程相关的参数  
     # All done
     print("\nTraining complete.")
