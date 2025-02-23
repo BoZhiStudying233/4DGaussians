@@ -44,11 +44,11 @@ class Load_hyper_data(Dataset):
         
         from .utils import Camera
         datadir = os.path.expanduser(datadir)
-        with open(f'{datadir}/scene.json', 'r') as f:
+        with open(f'{datadir}/scene.json', 'r') as f:#蕴藏着相机和场景的一些参数
             scene_json = json.load(f)
-        with open(f'{datadir}/metadata.json', 'r') as f:
+        with open(f'{datadir}/metadata.json', 'r') as f:#metadata.json里面含有每个图片对应的相机是哪个相机，时间是多少等
             meta_json = json.load(f)
-        with open(f'{datadir}/dataset.json', 'r') as f:
+        with open(f'{datadir}/dataset.json', 'r') as f:#包含每个图片的文件名
             dataset_json = json.load(f)
 
         self.near = scene_json['near']
@@ -87,13 +87,13 @@ class Load_hyper_data(Dataset):
         self.i_video.sort()
         self.all_cam_params = []
         for im in self.all_img:
-            camera = Camera.from_json(f'{datadir}/camera/{im}.json')
+            camera = Camera.from_json(f'{datadir}/camera/{im}.json')#这个json里含有此图片对应的相机的旋转矩阵、位姿、焦距等信息
 
             self.all_cam_params.append(camera)
         self.all_img_origin = self.all_img
         self.all_depth = [f'{datadir}/depth/{int(1/ratio)}x/{i}.npy' for i in self.all_img]
 
-        self.all_img = [f'{datadir}/rgb/{int(1/ratio)}x/{i}.png' for i in self.all_img]
+        self.all_img = [f'{datadir}/rgb/{int(1/ratio)}x/{i}.png' for i in self.all_img]#根据缩放比例读入相应的图片
 
         self.h, self.w = self.all_cam_params[0].image_shape
         self.map = {}

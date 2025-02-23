@@ -34,7 +34,7 @@ def readImages(renders_dir, gt_dir):
     return renders, gts, image_names
 
 def evaluate(model_paths):
-
+    print("len(model_paths):", len(model_paths))
     full_dict = {}
     per_view_dict = {}
     full_dict_polytopeonly = {}

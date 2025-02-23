@@ -379,7 +379,7 @@ def readHyperDataInfos(datadir,use_bg_points,eval):
     train_cam_infos = Load_hyper_data(datadir,0.5,use_bg_points,split ="train")
     test_cam_infos = Load_hyper_data(datadir,0.5,use_bg_points,split="test")#划分数据集
     print("load finished")
-    train_cam = format_hyper_data(train_cam_infos,"train")
+    train_cam = format_hyper_data(train_cam_infos,"train")#得到每个图片对应的相机信息，包括旋转矩阵、位姿、焦距、图片路径、图片名等信息
     print("format finished")
     max_time = train_cam_infos.max_time
     video_cam_infos = copy.deepcopy(test_cam_infos)

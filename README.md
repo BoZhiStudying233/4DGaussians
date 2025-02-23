@@ -191,7 +191,7 @@ python train.py -s data/dnerf/bouncingballs --port 6017 --expname "dnerf/bouncin
 ```
 
 Then load checkpoint with:
-
+ 
 ```python
 python train.py -s data/dnerf/bouncingballs --port 6017 --expname "dnerf/bouncingballs" --configs arguments/dnerf/bouncingballs.py --start_checkpoint "output/dnerf/bouncingballs/chkpnt_coarse_200.pth"
 # finestage: --start_checkpoint "output/dnerf/bouncingballs/chkpnt_fine_200.pth"

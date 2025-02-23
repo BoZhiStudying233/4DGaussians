@@ -8,6 +8,8 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
+import wandb
+
 import numpy as np
 import random
 import os, sys
@@ -108,7 +110,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     for iteration in range(first_iter, final_iter+1):        
         if network_gui.conn == None:
             network_gui.try_connect()
-            print("conneting_gui")
+            #print("conneting_gui")
         while network_gui.conn != None:
             print("conneted_gui")
             try:
@@ -217,8 +219,29 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # if opt.lambda_lpips !=0:
         #     lpipsloss = lpips_loss(image_tensor,gt_image_tensor,lpips_model)
         #     loss += opt.lambda_lpips * lpipsloss
-        
+        # print("loss:",loss.item(),"psnr:",psnr_.item())
+        # # 在优化器step前添加（约第241行附近）
+        # torch.nn.utils.clip_grad_norm_(gaussians.parameters(), max_norm=1.0)
+        # gaussians.optimizer.step()
+
         loss.backward()
+
+        # 在loss.backward()后添加
+        # total_norm = 0
+        # for name, param in gaussians.named_parameters():
+        #     if param.grad is not None:
+        #         param_norm = param.grad.data.norm(2).item()
+        #         total_norm += param_norm ** 2
+        #         if torch.isnan(param.grad).any():
+        #             print(f"NaN gradient detected in {name}")
+        #         if param_norm > 1e5:  # 梯度值超过10^5即报警
+        #             print(f"Exploding gradient in {name}: {param_norm:.2e}")
+        # total_norm = total_norm ** 0.5
+        # print(f"Total gradient norm: {total_norm:.2e}")
+
+
+
+
         if torch.isnan(loss).any():
             print("loss is nan,end training, reexecv program now.")
             os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -242,7 +265,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
             # Log and save
             timer.pause()
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, [pipe, background], stage, scene.dataset_type)
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, [pipe, background], stage, scene.dataset_type, psnr_)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration, stage)
@@ -256,6 +279,13 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                         # render_training_image(scene, gaussians, train_cams, render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
 
                     # total_images.append(to8b(temp_image).transpose(1,2,0))
+                if wandb.run is not None:
+                    if wandb and (iteration % 100 == 0):  # 每100次迭代记录一次
+                        rendered_img = to8b(image_tensor[0].permute(1,2,0))
+                        wandb.log({
+                            "render/train": wandb.Image(rendered_img),
+                            "iteration": iteration
+                        })
             timer.start()
             # Densification
             if iteration < opt.densify_until_iter :
@@ -326,6 +356,11 @@ def prepare_output_and_logger(expname):    #建立了output的文件夹，存储
     with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:
         cfg_log_f.write(str(Namespace(**vars(args))))
 
+    if not args.quiet:
+        wandb.init(project="4DGaussians", 
+                    name=expname,
+                    config=vars(args),
+                    dir=args.model_path)
     # Create Tensorboard writer
     tb_writer = None
     if TENSORBOARD_FOUND:
@@ -334,11 +369,25 @@ def prepare_output_and_logger(expname):    #建立了output的文件夹，存储
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, stage, dataset_type):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, stage, dataset_type, psnr_):
     if tb_writer:
         tb_writer.add_scalar(f'{stage}/train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar(f'{stage}/train_loss_patchestotal_loss', loss.item(), iteration)
         tb_writer.add_scalar(f'{stage}/iter_time', elapsed, iteration)
+        if wandb.run is not None:
+            if wandb:
+                wandb.log({
+                    f"{stage}/{config['name']}_l1": l1_test,
+                    f"{stage}/{config['name']}_psnr": psnr_test,
+                    "iteration": iteration
+                })
+    if wandb.run is not None:
+        wandb.log({
+            f"{stage}/train_loss": loss.item(),
+            f"{stage}/train_psnr": psnr_.item(),
+            f"{stage}/iter_time": elapsed,
+            "iteration": iteration
+        })
         
     
     # Report test and samples of training set
@@ -412,7 +461,8 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--expname", type=str, default = "")
     parser.add_argument("--configs", type=str, default = "")
-    
+
+
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     if args.configs:

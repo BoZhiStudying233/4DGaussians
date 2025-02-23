@@ -226,8 +226,8 @@ class Neural3D_NDC_Dataset(Dataset):
         sphere_scale=1.0,
     ):
         self.img_wh = (
-            int(1352 / downsample),
-            int(1014 / downsample),
+            int(1024 / downsample),#1352
+            int(768 / downsample),#1014
         )  # According to the neural 3D paper, the default resolution is 1024x768
         self.root_dir = datadir
         self.split = split

@@ -9,3 +9,5 @@ screenshots
 data/
 data
 submodules/
+wandb/*
+SIBR_viewers/*

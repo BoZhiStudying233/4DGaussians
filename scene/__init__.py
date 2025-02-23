@@ -44,6 +44,7 @@ class Scene:
         self.video_cameras = {}
 
         #下面是根据不同数据集含有的文件来判断数据集的类型，并调用相应的函数进行读取
+        print("args.source_path", args.source_path)
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.llffhold)
             dataset_type="colmap"
