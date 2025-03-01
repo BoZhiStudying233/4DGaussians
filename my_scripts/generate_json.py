@@ -147,13 +147,13 @@ if __name__ == "__main__":
     for key, value in camera_params.items():
         print(f"{key}: {value}")
 
-    first_order_radial_distortion = -camera_params['distortion']
+    first_order_radial_distortion = camera_params['distortion']
     focal_length = camera_params['focal_length']
     principal_point = [camera_params['cx'], camera_params['cy']]
     image_size = [camera_params['width'], camera_params['height']]
     pixel_aspect_ratio = 1
     skew = 0
-    #参数对应是否正确待检查
+    
     output_dir = args.cameras_file_path.replace('cameras.txt', 'camera')
     output_dir = output_dir.replace('/Sparse/0', '')
     print(f"输出路径: {output_dir}")

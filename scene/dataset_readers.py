@@ -384,7 +384,7 @@ def readHyperDataInfos(datadir,use_bg_points,eval):
     max_time = train_cam_infos.max_time
     video_cam_infos = copy.deepcopy(test_cam_infos)
     video_cam_infos.split="video"
-
+    #此处获得了test_camera的视角和train_camera的视角等信息.test_camera和video_camera的是一样的/
 
     ply_path = os.path.join(datadir, "points3D_downsample2.ply")
     pcd = fetchPly(ply_path)

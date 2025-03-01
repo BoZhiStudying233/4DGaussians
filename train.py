@@ -45,7 +45,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                          gaussians, scene, stage, tb_writer, train_iter,timer):
     first_iter = 0
 
-    gaussians.training_setup(opt)
+    gaussians.training_setup(opt)#初始化了很多参数,包括规划学习率等等
     if checkpoint:
         # breakpoint()
         if stage == "coarse" and stage not in checkpoint:
@@ -60,7 +60,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
-    iter_start = torch.cuda.Event(enable_timing = True)
+    iter_start = torch.cuda.Event(enable_timing = True)#创建CUDA事件对象iter_start，并且启用了时间戳记录功能
     iter_end = torch.cuda.Event(enable_timing = True)
 
     viewpoint_stack = None  #用于存储训练过程中使用的摄像机视角的列表
@@ -77,7 +77,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     train_cams = scene.getTrainCameras()
 
 
-    if not viewpoint_stack and not opt.dataloader:
+    if not viewpoint_stack and not opt.dataloader:#默认都是FALSE 和 None
         # dnerf's branch
         viewpoint_stack = [i for i in train_cams]
         temp_list = copy.deepcopy(viewpoint_stack)
@@ -98,16 +98,16 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     
     # dynerf, zerostamp_init
     # breakpoint()
-    if stage == "coarse" and opt.zerostamp_init:
+    if stage == "coarse" and opt.zerostamp_init:#默认为FALSE
         load_in_memory = True
         # batch_size = 4
-        temp_list = get_stamp_list(viewpoint_stack,0)
+        temp_list = get_stamp_list(viewpoint_stack,0)    
         viewpoint_stack = temp_list.copy()
     else:
         load_in_memory = False 
-                            # 
+                            
     count = 0
-    for iteration in range(first_iter, final_iter+1):        
+    for iteration in range(first_iter, final_iter+1): #开始训练的循环       
         if network_gui.conn == None:
             network_gui.try_connect()
             #print("conneting_gui")
@@ -139,7 +139,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         
         iter_start.record()
 
-        gaussians.update_learning_rate(iteration)
+        gaussians.update_learning_rate(iteration)#根据迭代次数更新学习率
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
@@ -164,7 +164,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
             while idx < batch_size :    
                     
-                viewpoint_cam = viewpoint_stack.pop(randint(0,len(viewpoint_stack)-1))
+                viewpoint_cam = viewpoint_stack.pop(randint(0,len(viewpoint_stack)-1))#hypernerf,对于viewpoint_stack = [i for i in train_cams],此处是在所有viewpoint_stack中随机选择一个
                 if not viewpoint_stack :
                     viewpoint_stack =  temp_list.copy()
                 viewpoint_cams.append(viewpoint_cam)
@@ -174,7 +174,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # print(len(viewpoint_cams))     
         # breakpoint()   
         # Render
-        if (iteration - 1) == debug_from:
+        if (iteration - 1) == debug_from:#debug_from默认为-1
             pipe.debug = True
         images = []
         gt_images = []
@@ -182,7 +182,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         visibility_filter_list = []
         viewspace_point_tensor_list = []
         for viewpoint_cam in viewpoint_cams:
-            render_pkg = render(viewpoint_cam, gaussians, pipe, background, stage=stage,cam_type=scene.dataset_type)
+            render_pkg = render(viewpoint_cam, gaussians, pipe, background, stage=stage,cam_type=scene.dataset_type)#这里是整个光栅化的过程，根据此相机视角生成图像
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             images.append(image.unsqueeze(0))
             if scene.dataset_type!="PanopticSports":
@@ -223,7 +223,12 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # # 在优化器step前添加（约第241行附近）
         # torch.nn.utils.clip_grad_norm_(gaussians.parameters(), max_norm=1.0)
         # gaussians.optimizer.step()
-
+        if wandb.run is not None:
+            wandb.log({
+                f"{stage}/train_loss": loss.item(),
+                f"{stage}/train_psnr": psnr_.item(),
+                "iteration": iteration
+            })
         loss.backward()
 
         # 在loss.backward()后添加
@@ -269,23 +274,23 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration, stage)
-            if dataset.render_process:
+            if dataset.render_process:#此参数藏在arguments的.py
                 if (iteration < 1000 and iteration % 10 == 9) \
                     or (iteration < 3000 and iteration % 50 == 49) \
                         or (iteration < 60000 and iteration %  100 == 99) :
                     # breakpoint()
-                        render_training_image(scene, gaussians, [test_cams[iteration%len(test_cams)]], render, pipe, background, stage+"test", iteration,timer.get_elapsed_time(),scene.dataset_type)
+                        render_training_image(scene, gaussians, [test_cams[iteration%len(test_cams)]], render, pipe, background, stage+"test", iteration,timer.get_elapsed_time(),scene.dataset_type)#抽取一个视角，然后渲染图片并保存
                         render_training_image(scene, gaussians, [train_cams[iteration%len(train_cams)]], render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
                         # render_training_image(scene, gaussians, train_cams, render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
 
                     # total_images.append(to8b(temp_image).transpose(1,2,0))
-                if wandb.run is not None:
-                    if wandb and (iteration % 100 == 0):  # 每100次迭代记录一次
-                        rendered_img = to8b(image_tensor[0].permute(1,2,0))
-                        wandb.log({
-                            "render/train": wandb.Image(rendered_img),
-                            "iteration": iteration
-                        })
+                # if wandb.run is not None:
+                #     if wandb and (iteration % 500 == 0):  # 每500次迭代记录一次
+                #         rendered_img = to8b(image_tensor[0].permute(1,2,0))
+                #         wandb.log({
+                #             "render/train": wandb.Image(rendered_img),
+                #             "iteration": iteration
+                #         })
             timer.start()
             # Densification
             if iteration < opt.densify_until_iter :
@@ -334,6 +339,7 @@ def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, c
     timer = Timer()
     scene = Scene(dataset, gaussians, load_coarse=None)#scene的实例包含了非常多的属性，包括cam_infos，点云，最大时间等等
     timer.start()
+
     scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations,
                              checkpoint_iterations, checkpoint, debug_from,
                              gaussians, scene, "coarse", tb_writer, opt.coarse_iterations,timer)
@@ -370,24 +376,11 @@ def prepare_output_and_logger(expname):    #建立了output的文件夹，存储
     return tb_writer
 
 def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, stage, dataset_type, psnr_):
-    if tb_writer:
-        tb_writer.add_scalar(f'{stage}/train_loss_patches/l1_loss', Ll1.item(), iteration)
-        tb_writer.add_scalar(f'{stage}/train_loss_patchestotal_loss', loss.item(), iteration)
-        tb_writer.add_scalar(f'{stage}/iter_time', elapsed, iteration)
-        if wandb.run is not None:
-            if wandb:
-                wandb.log({
-                    f"{stage}/{config['name']}_l1": l1_test,
-                    f"{stage}/{config['name']}_psnr": psnr_test,
-                    "iteration": iteration
-                })
-    if wandb.run is not None:
-        wandb.log({
-            f"{stage}/train_loss": loss.item(),
-            f"{stage}/train_psnr": psnr_.item(),
-            f"{stage}/iter_time": elapsed,
-            "iteration": iteration
-        })
+    # if tb_writer:
+    #     tb_writer.add_scalar(f'{stage}/train_loss_patches/l1_loss', Ll1.item(), iteration)
+    #     tb_writer.add_scalar(f'{stage}/train_loss_patchestotal_loss', loss.item(), iteration)
+    #     tb_writer.add_scalar(f'{stage}/iter_time', elapsed, iteration)
+
         
     
     # Report test and samples of training set
@@ -421,17 +414,19 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 psnr_test /= len(config['cameras'])
                 l1_test /= len(config['cameras'])          
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
-                # print("sh feature",scene.gaussians.get_features.shape)
-                if tb_writer:
-                    tb_writer.add_scalar(stage + "/"+config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
-                    tb_writer.add_scalar(stage+"/"+config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
 
-        if tb_writer:
-            tb_writer.add_histogram(f"{stage}/scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
-            
-            tb_writer.add_scalar(f'{stage}/total_points', scene.gaussians.get_xyz.shape[0], iteration)
-            tb_writer.add_scalar(f'{stage}/deformation_rate', scene.gaussians._deformation_table.sum()/scene.gaussians.get_xyz.shape[0], iteration)
-            tb_writer.add_histogram(f"{stage}/scene/motion_histogram", scene.gaussians._deformation_accum.mean(dim=-1)/100, iteration,max_bins=500)
+                if wandb.run is not None:
+                    wandb.log({
+                        f"{stage}/_l1_{config['name']}": l1_test,
+                        f"{stage}/_psnr_{config['name']}": psnr_test,
+                        "iteration": iteration
+                        })
+                # print("sh feature",scene.gaussians.get_features.shape)
+                # if tb_writer:
+                #     tb_writer.add_scalar(stage + "/"+config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
+                #     tb_writer.add_scalar(stage+"/"+config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
+
+
         
         torch.cuda.empty_cache()
 def setup_seed(seed):
@@ -454,7 +449,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[3000,7000,14000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[ i for i in range(1000, 60000, 250) ])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[ 14000, 20000, 30_000, 45000, 60000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

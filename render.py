@@ -53,9 +53,11 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     gt_list = []
     render_list = []
     print("point nums:",gaussians._xyz.shape[0])
-    for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
+    # print("views:",len(views))
+    # print("views:",views)
+    for idx, view in enumerate(tqdm(views, desc="Process Rendering")):
         if idx == 0:time1 = time()
-        
+        # print("idx:",idx,"views:",len(views))
         rendering = render(view, gaussians, pipeline, background,cam_type=cam_type)["render"]
         render_images.append(to8b(rendering).transpose(1,2,0))
         render_list.append(rendering)
@@ -65,15 +67,18 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
             else:
                 gt  = view['image'].cuda()
             gt_list.append(gt)
+        # print("循环+1")
 
     time2=time()
-    print("FPS:",(len(views)-1)/(time2-time1))
+    print("FPS:",(len(views)-1)/(time2-time1))#此处的帧数代表每秒能渲染出几张图片
 
     multithread_write(gt_list, gts_path)
 
     multithread_write(render_list, render_path)
 
-    imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_rgb.mp4'), render_images, fps=30)
+    imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_rgb.mp4'), render_images, fps=30)#每秒显示的图像帧数为 30 帧
+    print("Done rendering")
+
 def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_video: bool):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree, hyperparam)
@@ -88,7 +93,7 @@ def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : P
         if not skip_test:
             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background,cam_type)
         if not skip_video:
-            render_set(dataset.model_path,"video",scene.loaded_iter,scene.getVideoCameras(),gaussians,pipeline,background,cam_type)
+            render_set(dataset.model_path,"video", scene.loaded_iter, scene.getVideoCameras(),gaussians, pipeline, background,cam_type)
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Testing script parameters")

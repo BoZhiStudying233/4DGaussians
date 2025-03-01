@@ -57,6 +57,7 @@ class Scene:
             dataset_type="dynerf"
         elif os.path.exists(os.path.join(args.source_path,"dataset.json")):#hypernerf数据集属于此类
             scene_info = sceneLoadTypeCallbacks["nerfies"](args.source_path, False, args.eval)
+            print("Loading Nerfies dataset")
             dataset_type="nerfies"
         elif os.path.exists(os.path.join(args.source_path,"train_meta.json")):
             scene_info = sceneLoadTypeCallbacks["PanopticSports"](args.source_path)
@@ -76,8 +77,11 @@ class Scene:
         print("Loading Video Cameras")
         self.video_camera = FourDGSdataset(scene_info.video_cameras, args, dataset_type)
 
+        print("Number of cameras: train {}, test {}, video {}".format(len(self.train_camera), len(self.test_camera), len(self.video_camera)))
+
+
         # self.video_camera = cameraList_from_camInfos(scene_info.video_cameras,-1,args)
-        xyz_max = scene_info.point_cloud.points.max(axis=0)
+        xyz_max = scene_info.point_cloud.points.max(axis=0)#获取点云的最大最小值,此处的点云就是我们下采样得到的点云
         xyz_min = scene_info.point_cloud.points.min(axis=0)
         if args.add_points:
             print("add points.")
@@ -94,7 +98,7 @@ class Scene:
                                                     "iteration_" + str(self.loaded_iter),
                                                    ))
         else:
-            self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)#创建高斯模型
+            self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)#从点云来创建高斯模型
 
     def save(self, iteration, stage):
         if stage == "coarse":

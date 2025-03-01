@@ -13,7 +13,7 @@ class FourDGSdataset(Dataset):
         args,
         dataset_type
     ):
-        self.dataset = dataset
+        self.dataset = dataset#dataset 是一系列相机信息
         self.args = args
         self.dataset_type=dataset_type
     def __getitem__(self, index):

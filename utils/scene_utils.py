@@ -5,11 +5,19 @@ from matplotlib import pyplot as plt
 plt.rcParams['font.sans-serif'] = ['Times New Roman']
 
 import numpy as np
+import wandb
+
+
+last_iter = -501
 
 import copy
 @torch.no_grad()
+
+
 def render_training_image(scene, gaussians, viewpoints, render_func, pipe, background, stage, iteration, time_now, dataset_type):
     def render(gaussians, viewpoint, path, scaling, cam_type):
+        global last_iter
+        
         # scaling_copy = gaussians._scaling
         render_pkg = render_func(viewpoint, gaussians, pipe, background, stage=stage, cam_type=cam_type)
         label1 = f"stage:{stage},iter:{iteration}"
@@ -40,6 +48,16 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
         draw1.text(label2_position, label2, fill=text_color, font=font)
         
         image_with_labels.save(path)
+        
+        if wandb.run is not None:
+            if wandb and (abs(iteration - last_iter) > 500):  # 每500次迭代记录一次
+                if "train" in stage:
+                    last_iter = iteration#因为渲染图片是先渲染test的，再渲染train，所以要渲染train的时候再更新last_iter
+                print("save image to wandb")
+                wandb.log({
+                    f"render/{stage}_render": wandb.Image(image_with_labels),
+                    "iteration": iteration
+                })
     render_base_path = os.path.join(scene.model_path, f"{stage}_render")
     point_cloud_path = os.path.join(render_base_path,"pointclouds")
     image_path = os.path.join(render_base_path,"images")

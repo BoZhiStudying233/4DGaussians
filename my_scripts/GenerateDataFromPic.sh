@@ -1,4 +1,9 @@
 #!/bin/bash
+#参考指令
+#bash my_scripts/GenerateDataFromPic.sh /home/bo70s/Desktop/underwater_dataset/coral
+#路径中的图片文件夹应为images，且不可有其他图片文件夹。
+#注意images图片的格式是png还是jpg，要与py文件中的格式对应。
+
 
 # 检查输入参数是否正确
 if [ "$#" -ne 1 ]; then
@@ -13,57 +18,61 @@ INPUT_IMAGE_PATH=$1
 FOLDER_NAME=$(basename $INPUT_IMAGE_PATH)
 OUTPUT_PATH="data/my_data/$FOLDER_NAME"
 
-# # 创建输出目录
-# mkdir -p $OUTPUT_PATH
-
-# colmap feature_extractor \
-#    --database_path $OUTPUT_PATH/database.db \
-#    --image_path $INPUT_IMAGE_PATH \
-#    --ImageReader.camera_model SIMPLE_RADIAL \
-#    --ImageReader.single_camera 1 
-
-# colmap exhaustive_matcher \
-#    --database_path $OUTPUT_PATH/database.db
-
-# mkdir $OUTPUT_PATH/Sparse
-
-# colmap mapper \
-#     --database_path $OUTPUT_PATH/database.db \
-#     --image_path $INPUT_IMAGE_PATH \
-#     --output_path $OUTPUT_PATH/Sparse
-
-# mkdir $OUTPUT_PATH/dense
-
-# colmap image_undistorter \
-#     --image_path $INPUT_IMAGE_PATH \
-#     --input_path $OUTPUT_PATH/Sparse/0 \
-#     --output_path $OUTPUT_PATH/dense \
-#     --output_type COLMAP \
-#     --max_image_size 2000
-
-# colmap patch_match_stereo \
-#     --workspace_path $OUTPUT_PATH/dense \
-#     --workspace_format COLMAP \
-#     --PatchMatchStereo.geom_consistency true
-
-# colmap stereo_fusion \
-#     --workspace_path $OUTPUT_PATH/dense \
-#     --workspace_format COLMAP \
-#     --input_type geometric \
-#     --output_path $OUTPUT_PATH/dense/fused.ply
-
-# colmap poisson_mesher \
-#     --input_path $OUTPUT_PATH/dense/fused.ply \
-#     --output_path $OUTPUT_PATH/dense/meshed-poisson.ply
-
-# colmap delaunay_mesher \
-#     --input_path $OUTPUT_PATH/dense \
-#     --output_path $OUTPUT_PATH/dense/meshed-delaunay.ply
+# 创建输出目录
+mkdir -p $OUTPUT_PATH
 
 
-# echo "密集重建完成。"
+#格式化图片名称
+python my_scripts/format_pic_name.py --images_file_path $INPUT_IMAGE_PATH/images
 
-# echo "重建结果保存在: $OUTPUT_PATH"
+colmap feature_extractor \
+   --database_path $OUTPUT_PATH/database.db \
+   --image_path $INPUT_IMAGE_PATH \
+   --ImageReader.camera_model SIMPLE_RADIAL \
+   --ImageReader.single_camera 1 
+
+colmap exhaustive_matcher \
+   --database_path $OUTPUT_PATH/database.db
+
+mkdir $OUTPUT_PATH/Sparse
+
+colmap mapper \
+    --database_path $OUTPUT_PATH/database.db \
+    --image_path $INPUT_IMAGE_PATH \
+    --output_path $OUTPUT_PATH/Sparse
+
+mkdir $OUTPUT_PATH/dense
+
+colmap image_undistorter \
+    --image_path $INPUT_IMAGE_PATH \
+    --input_path $OUTPUT_PATH/Sparse/0 \
+    --output_path $OUTPUT_PATH/dense \
+    --output_type COLMAP \
+    --max_image_size 2000
+
+colmap patch_match_stereo \
+    --workspace_path $OUTPUT_PATH/dense \
+    --workspace_format COLMAP \
+    --PatchMatchStereo.geom_consistency true
+
+colmap stereo_fusion \
+    --workspace_path $OUTPUT_PATH/dense \
+    --workspace_format COLMAP \
+    --input_type geometric \
+    --output_path $OUTPUT_PATH/dense/fused.ply
+
+colmap poisson_mesher \
+    --input_path $OUTPUT_PATH/dense/fused.ply \
+    --output_path $OUTPUT_PATH/dense/meshed-poisson.ply
+
+colmap delaunay_mesher \
+    --input_path $OUTPUT_PATH/dense \
+    --output_path $OUTPUT_PATH/dense/meshed-delaunay.ply
+
+
+echo "密集重建完成。"
+
+echo "重建结果保存在: $OUTPUT_PATH"
 
 # echo "开始进行下采样"
 
@@ -85,9 +94,14 @@ OUTPUT_PATH="data/my_data/$FOLDER_NAME"
 # mkdir $OUTPUT_PATH/rgb
 # mkdir $OUTPUT_PATH/rgb/2x
 # cp $INPUT_IMAGE_PATH/images/* $OUTPUT_PATH/rgb/2x/
-# python my_scripts/format_pic_name.py --images_file_path $OUTPUT_PATH/rgb/2x
+
 # python my_scripts/generate_dataset_json.py --input $OUTPUT_PATH/Sparse/0/new_images.txt --output $OUTPUT_PATH/dataset.json
 # cp data/my_data/turtle/scene.json $OUTPUT_PATH/
 # echo "数据集格式转换完成。开始训练"
 
-python train.py -s data/my_data/$FOLDER_NAME --port 6017 --expname my_data/$FOLDER_NAME --configs arguments/hypernerf/default.py
+# python train.py -s data/my_data/$FOLDER_NAME --port 6017 --expname my_data/$FOLDER_NAME --configs arguments/hypernerf/default.py
+
+# echo "训练完成。开始渲染"
+
+# python render.py --model_path output/my_data/$FOLDER_NAME --configs arguments/hypernerf/default.py
+# 0echo "渲染完成。"
