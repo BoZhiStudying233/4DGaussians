@@ -104,7 +104,7 @@ def build_rotation(r):
     R[:, 2, 2] = 1 - 2 * (x*x + y*y)
     return R
 
-def build_scaling_rotation(s, r):
+def build_scaling_rotation(s, r):#s为缩放因子，r为旋转四元数
     L = torch.zeros((s.shape[0], 3, 3), dtype=torch.float, device="cuda")
     R = build_rotation(r)
 
@@ -112,7 +112,7 @@ def build_scaling_rotation(s, r):
     L[:,1,1] = s[:,1]
     L[:,2,2] = s[:,2]
 
-    L = R @ L
+    L = R @ L#两个矩阵想乘
     return L
 
 def safe_state(silent):

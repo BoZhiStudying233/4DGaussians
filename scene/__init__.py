@@ -20,6 +20,8 @@ from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 from torch.utils.data import Dataset
 from scene.dataset_readers import add_points
+
+
 class Scene:
 
     gaussians : GaussianModel
@@ -30,6 +32,7 @@ class Scene:
         """
         self.model_path = args.model_path
         self.loaded_iter = None
+        
         self.gaussians = gaussians
         
         if load_iteration:

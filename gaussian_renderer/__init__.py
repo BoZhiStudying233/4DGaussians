@@ -23,7 +23,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     """
  
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
-    screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
+    screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0  #dtype表示数据类型    +0是为了触发张量的重新计算，确保张量位于正确的设备（GPU）上
+    #此变量的目的是为后续的高斯点渲染做准备，确保所有的高斯点在屏幕空间中的位置都能被正确地计算和跟踪其梯度变化。
     try:
         screenspace_points.retain_grad()
     except:
@@ -31,7 +32,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Set up rasterization configuration
     
-    means3D = pc.get_xyz
+    means3D = pc.get_xyz#猜测pc是point cloud的意思
     if cam_type != "PanopticSports":
         tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
         tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
@@ -49,11 +50,58 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             prefiltered=False,
             debug=pipe.debug
         )
-        time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)
+        time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)#重复时间张量。时间张量会被扩展成一个形状为 (Gaussian点的数量, 1) 的矩阵，这样每个 Gaussian 点都拥有相应的时间信息
     else:
-        raster_settings = viewpoint_camera['camera']
+        raster_settings = viewpoint_camera['camera']#viewpoint_camera是一个复杂的量，好像与scene这个类有关。里面包含了batch_size个camera，每个camera都有自己的属性，
         time=torch.tensor(viewpoint_camera['time']).to(means3D.device).repeat(means3D.shape[0],1)
         
+
+
+    R = torch.from_numpy(viewpoint_camera.R).float().cuda()    #旋转矩阵，但是需要考虑一下这个旋转矩阵该如何用，需不需要用逆矩阵之类的
+    H = viewpoint_camera.image_height
+    W = viewpoint_camera.image_width
+    y = torch.linspace(0., H, H, device="cuda")
+    x = torch.linspace(0., W, W, device="cuda")
+    cy,cx = H/2, W/2
+    yy, xx = torch.meshgrid(y, x)
+    yy = (yy - cy) / viewpoint_camera.FoVy
+    xx = (xx - cx) / viewpoint_camera.FoVx
+    directions = torch.stack([xx, yy, torch.ones_like(xx)], dim=-1)
+    norms = torch.linalg.norm(directions, dim=-1, keepdim=True)
+    directions = directions / norms
+    directions = directions @ R.T       #也就是将方向向量转换到世界坐标系下
+    #colmap出来的R是world2camera，因此需要将其转换为camera2world
+
+    directions_flat = directions.view(-1, 3)
+    directions_encoded = pc.direction_encoding(directions_flat)
+    outputs_shape = directions.shape[:-1]
+
+    medium_base_out = pc.medium_mlp(directions_encoded)
+ 
+    # different activations for different outputs
+    medium_rgb = (
+        pc.colour_activation(medium_base_out[..., :3])
+        .view(*outputs_shape, -1)
+        .to(directions)
+    )
+    medium_bs = (
+        pc.sigma_activation(medium_base_out[..., 3:6] + pc.medium_density_bias)
+        .view(*outputs_shape, -1)
+        .to(directions)
+    )
+    medium_attn = (
+        pc.sigma_activation(medium_base_out[..., 6:] + pc.medium_density_bias)
+        .view(*outputs_shape, -1)
+        .to(directions)
+    )
+
+    # #当渲染清澈介质（无介质）时候，用此三句话
+    # medium_rgb = torch.zeros_like(medium_rgb)
+    # medium_bs = torch.zeros_like(medium_bs)
+    # medium_attn = torch.zeros_like(medium_attn)
+
+
+
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
@@ -117,7 +165,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, radii, depth = rasterizer(
+    rendered_image, radii, depth = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,

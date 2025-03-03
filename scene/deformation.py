@@ -208,7 +208,7 @@ class deform_network(nn.Module):
                                                 opacity,
                                                 shs,
                                                 None,
-                                                times_sel)
+                                                times_sel)#这条语句，让我们得到了根据时间变形后的高斯。
         return means3D, scales, rotations, opacity, shs
     def get_mlp_parameters(self):
         return self.deformation_net.get_mlp_parameters() + list(self.timenet.parameters())

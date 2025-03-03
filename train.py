@@ -165,6 +165,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             while idx < batch_size :    
                     
                 viewpoint_cam = viewpoint_stack.pop(randint(0,len(viewpoint_stack)-1))#hypernerf,对于viewpoint_stack = [i for i in train_cams],此处是在所有viewpoint_stack中随机选择一个
+                                                                                        #train_cams = scene.getTrainCameras() 因此 是FourDGSdataset(scene_info.train_cameras, args, dataset_type)类型。
+                                                                                        #而是FourDGSdataset的__getitem__返回的是Camera类, image_width、image_height、FoVx、FoVy、time都是它的属性。
+
                 if not viewpoint_stack :
                     viewpoint_stack =  temp_list.copy()
                 viewpoint_cams.append(viewpoint_cam)
@@ -337,7 +340,8 @@ def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, c
     gaussians = GaussianModel(dataset.sh_degree, hyper) #建立了gaussian model，里面包含了xyz，rgb，不透明度等信息
     dataset.model_path = args.model_path
     timer = Timer()
-    scene = Scene(dataset, gaussians, load_coarse=None)#scene的实例包含了非常多的属性，包括cam_infos，点云，最大时间等等
+    scene = Scene(dataset, gaussians, load_coarse=None)#scene的实例包含了非常多的属性，包括cam_infos，点云，最大时间等等；
+    #并在这里初始化了gaussian model，从点云读入了位置信息，并初始化高斯的不透明度等参数
     timer.start()
 
     scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations,
@@ -362,7 +366,7 @@ def prepare_output_and_logger(expname):    #建立了output的文件夹，存储
     with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:
         cfg_log_f.write(str(Namespace(**vars(args))))
 
-    if not args.quiet:
+    if args.wandb:
         wandb.init(project="4DGaussians", 
                     name=expname,
                     config=vars(args),
@@ -456,6 +460,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--expname", type=str, default = "")
     parser.add_argument("--configs", type=str, default = "")
+    parser.add_argument("--wandb", action="store_true", default=False)
 
 
     args = parser.parse_args(sys.argv[1:])

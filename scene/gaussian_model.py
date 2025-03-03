@@ -24,13 +24,18 @@ from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from scene.deformation import deform_network
 from scene.regulation import compute_plane_smoothness
+
+from nerfstudio.field_components.mlp import MLP
+from nerfstudio.field_components.encodings import SHEncoding
+
+
 class GaussianModel:
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
-            L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+            L = build_scaling_rotation(scaling_modifier * scaling, rotation)#得到旋转矩阵和缩放矩阵
             actual_covariance = L @ L.transpose(1, 2)
-            symm = strip_symmetric(actual_covariance)
+            symm = strip_symmetric(actual_covariance)#取协方差矩阵的对称部分（上/下三角部分）
             return symm
         
         self.scaling_activation = torch.exp
@@ -61,7 +66,31 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self._deformation_table = torch.empty(0)
+
+        self.medium_mlp = None  # 用于计算密度场的MLP,先显式声明占位
+
+
+
         self.setup_functions()
+        self.construct_medium_net()#定义MLP网络结构
+
+    def construct_medium_net(self):
+
+        self.direction_encoding = SHEncoding(levels=4)
+        self.colour_activation = nn.Sigmoid()
+        self.sigma_activation = nn.Softplus()
+        self.medium_density_bias= 0
+
+        self.medium_mlp = MLP(
+            in_dim=self.direction_encoding.get_out_dim(),#考虑时间维度的话，这里需要加上1
+            num_layers= 2,
+            layer_width= 128,
+            out_dim=9,
+            activation=nn.Sigmoid(),
+            out_activation=None,
+            implementation= "tcnn",
+        )
+
 
     def capture(self):
         return (
@@ -277,7 +306,7 @@ class GaussianModel:
         xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
                         np.asarray(plydata.elements[0]["y"]),
                         np.asarray(plydata.elements[0]["z"])),  axis=1)
-        opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
+        opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]#存储不透明度
 
         features_dc = np.zeros((xyz.shape[0], 3, 1))
         features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
