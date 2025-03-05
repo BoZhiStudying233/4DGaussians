@@ -27,7 +27,7 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
         else:
             end = "mins"
         label2 = "time:%.2f" % times + end
-        image = render_pkg["render"] + render_pkg["rgb_medium"]
+        image = render_pkg["render_image"] + render_pkg["rgb_medium"]
         depth = render_pkg["depth"]
         if dataset_type == "PanopticSports":
             gt_np = viewpoint['image'].permute(1,2,0).cpu().numpy()
@@ -35,7 +35,7 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
             gt_np = viewpoint.original_image.permute(1,2,0).cpu().numpy()
         image_np = image.permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
 
-        render_np = render_pkg["render"].permute(1,2,0).cpu().numpy()
+        render_np = render_pkg["render_image"].permute(1,2,0).cpu().numpy()
         rgb_medium_np = render_pkg["rgb_medium"].permute(1,2,0).cpu().numpy()
 
 

@@ -105,3 +105,8 @@ echo "重建结果保存在: $OUTPUT_PATH"
 
 # python render.py --model_path output/my_data/$FOLDER_NAME --configs arguments/hypernerf/default.py
 # 0echo "渲染完成。"
+
+
+
+
+## python train.py -s data/my_data/turtle --port 6017 --expname my_data/turtle --configs arguments/hypernerf/default.py

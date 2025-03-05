@@ -8,6 +8,7 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
+from typing import Tuple
 
 import torch
 import math
@@ -172,7 +173,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     viewmat[3, 3] = 1    # 齐次坐标系数
 
     xys, depths, conics = project_gaussians_manual(
-        means3d=means3D_final._opacity,
+        means3d=means3D_final,
         viewmat=viewmat,
         fx=viewpoint_camera.FoVx,
         fy=viewpoint_camera.FoVy,
@@ -212,8 +213,11 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # breakpoint()
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
+
+    rgb_medium_reshaped = rgb_medium.permute(2, 0, 1)
+
     return {"render_image": rendered_image,
-            "rgb_medium": rgb_medium,
+            "rgb_medium": rgb_medium_reshaped,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
             "radii": radii,
@@ -315,7 +319,7 @@ def integrate_medium_contributions(
     rgb_medium = torch.zeros(H, W, 3, device=device)
     T_obj = torch.ones(H, W, 3, device=device)
     prev_depth = torch.zeros(H, W, 1, device=device)  # 每个像素独立记录前向深度
-    
+     
     # 同步排序所有参数
     sorted_indices = torch.argsort(depths.squeeze(), descending=True)
     xys = xys[sorted_indices]
@@ -331,8 +335,8 @@ def integrate_medium_contributions(
         
         # 步骤1: 计算椭圆参数
         trace = a + c
-        det = a * c - b ​**​ 2
-        sqrt_term = torch.sqrt((a - c) ​**​ 2 + 4 * b ​**​ 2)
+        # det = a * c - b ​**​ 2
+        sqrt_term = torch.sqrt((a - c)**2 + 4 * b**2)
         eigen1 = (trace + sqrt_term) / 2
         eigen2 = (trace - sqrt_term) / 2
         major_axis = 3 * (1 / eigen2).sqrt()  # 3σ原则覆盖99.7%能量
