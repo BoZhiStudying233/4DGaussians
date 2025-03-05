@@ -212,7 +212,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # breakpoint()
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image+rgb_medium,
+    return {"render_image": rendered_image,
+            "rgb_medium": rgb_medium,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
             "radii": radii,
@@ -494,14 +495,14 @@ def compute_conics(Σ_2d: torch.Tensor) -> torch.Tensor:
     c = Σ_2d_inv[:, 1, 1]
     return torch.stack([a, b, c], dim=-1)
 def compute_all_conics(
-    σ_flatten: torch.Tensor,  # [N,6] 扁平化的协方差参数
+    cov_flatten: torch.Tensor,  # [N,6] 扁平化的协方差参数
     centers: torch.Tensor,    # [N,3] 高斯中心的世界坐标
     R: torch.Tensor,         # [3,3] 相机旋转矩阵
     t: torch.Tensor,         # [3] 相机平移向量
     K: torch.Tensor          # [3,3] 相机内参矩阵
 ) -> torch.Tensor:
     # Step 1: 组装 3D 协方差矩阵
-    Σ_3d = flatten_to_cov3d(σ_flatten)  # [N,3,3]
+    Σ_3d = flatten_to_cov3d(cov_flatten)  # [N,3,3]
     
     # Step 2: 转换到相机坐标系
     Σ_camera, μ_camera = transform_to_camera(Σ_3d, R, t, centers)  # [N,3,3], [N,3]

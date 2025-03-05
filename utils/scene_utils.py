@@ -27,17 +27,22 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
         else:
             end = "mins"
         label2 = "time:%.2f" % times + end
-        image = render_pkg["render"]
+        image = render_pkg["render"] + render_pkg["rgb_medium"]
         depth = render_pkg["depth"]
         if dataset_type == "PanopticSports":
             gt_np = viewpoint['image'].permute(1,2,0).cpu().numpy()
         else:
             gt_np = viewpoint.original_image.permute(1,2,0).cpu().numpy()
         image_np = image.permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
+
+        render_np = render_pkg["render"].permute(1,2,0).cpu().numpy()
+        rgb_medium_np = render_pkg["rgb_medium"].permute(1,2,0).cpu().numpy()
+
+
         depth_np = depth.permute(1, 2, 0).cpu().numpy()
         depth_np /= depth_np.max()
         depth_np = np.repeat(depth_np, 3, axis=2)
-        image_np = np.concatenate((gt_np, image_np, depth_np), axis=1)
+        image_np = np.concatenate((gt_np, image_np, depth_np, render_np, rgb_medium_np), axis=1)
         image_with_labels = Image.fromarray((np.clip(image_np,0,1) * 255).astype('uint8'))  
         draw1 = ImageDraw.Draw(image_with_labels)
         font = ImageFont.truetype('./utils/TIMES.TTF', size=40) 
