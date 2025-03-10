@@ -172,34 +172,13 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     viewmat[:3, 3] = T   # 平移部分
     viewmat[3, 3] = 1    # 齐次坐标系数
 
-    xys, depths, conics = project_gaussians_manual(
-        means3d=means3D_final,
-        viewmat=viewmat,
-        fx=viewpoint_camera.FoVx,
-        fy=viewpoint_camera.FoVy,
-        cx=cx,
-        cy=cy,
-        cov_flatten=pc.get_covariance(scaling_modifier),
-        clip_thresh=0.01
-        )
 
 
-    rgb_medium = integrate_medium_contributions(
-        xys=xys,
-        depths=depths,
-        opacities=opacity_final,
-        conics= conics,
-        medium_rgb=medium_rgb,
-        medium_bs=medium_bs,
-        medium_attn=medium_attn,
-        H=H,
-        W=W
-    )
 
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, radii, depth = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
+    rendered_image, radii, depth, xys_tensor, depths_tensor, conic_tensor = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,
@@ -214,13 +193,29 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
 
+
+    rgb_medium = integrate_medium_contributions(
+        xys=xys_tensor,
+        depths=depths_tensor,
+        opacities=conic_tensor[:, 3:4],
+        conics= conic_tensor[:, :3],#索引待检查
+        medium_rgb=medium_rgb,
+        medium_bs=medium_bs,
+        medium_attn=medium_attn,
+        H=H,
+        W=W
+    )
+
+
+
+
     rgb_medium_reshaped = rgb_medium.permute(2, 0, 1)
 
     return {"render_image": rendered_image,
             "rgb_medium": rgb_medium_reshaped,
             "viewspace_points": screenspace_points,
-            "visibility_filter" : radii > 0,
-            "radii": radii,
+            "visibility_filter" : radii > 0,#visibility_filter用于过滤掉被视锥体裁剪掉的高斯点。看不见的点就不会参与后续的梯度更新。
+            "radii": radii,#radii用于进行高斯密度的更新。
             "depth":depth}
 
 
