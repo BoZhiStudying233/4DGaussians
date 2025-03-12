@@ -193,19 +193,36 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
 
+    # print("size:",depths_tensor[0][0])
+    # print("xys.device:",xys_tensor.device)
+    # xys_tensors = xys_tensor.cuda()
+    # conic_tensors = conic_tensor.cuda()
 
+
+    xys_cpu = xys_tensor.clone().detach().cpu()
+    xys_cuda = xys_cpu.cuda()
+
+    conic_cpu = conic_tensor.clone().detach().cpu()
+    conic_cuda = conic_cpu.cuda()
+
+    depths_cpu = depths_tensor.clone().detach().cpu()
+    depths_cuda = depths_cpu.cuda()
+
+    # print("xys_cuda.device:",xys_cuda.device)
+    # print("conics:",conic_cuda)
+    print("begin")
     rgb_medium = integrate_medium_contributions(
-        xys=xys_tensor,
-        depths=depths_tensor,
-        opacities=conic_tensor[:, 3:4],
-        conics= conic_tensor[:, :3],#索引待检查
+        xys=xys_cuda,
+        depths=depths_cuda,
+        opacities=conic_cuda[:, 3:4],
+        conics= conic_cuda[:, :3],#索引待检查
         medium_rgb=medium_rgb,
         medium_bs=medium_bs,
         medium_attn=medium_attn,
         H=H,
         W=W
     )
-
+    print("end")
 
 
 
@@ -322,6 +339,7 @@ def integrate_medium_contributions(
     opacities = opacities[sorted_indices]
     conics = conics[sorted_indices]
     
+    print("len(depths):",len(depths))
     # 批量处理所有高斯
     for i in range(len(depths)):
         # 提取当前高斯参数
@@ -386,10 +404,11 @@ def integrate_medium_contributions(
             rgb_medium[grid_v, grid_u] += T_obj[grid_v, grid_u] * c_med * delta_exp
 
             T_obj[grid_v, grid_u] *= (1 - alpha_i.unsqueeze(-1))
-            
+            # print(f"s_i 的数据类型是: {s_i.dtype}")
+            # print(f"prev_depth 的数据类型是: {prev_depth.dtype}")
             # 更新深度记录
-            prev_depth[grid_v, grid_u] = s_i
-    
+            prev_depth[grid_v, grid_u] = s_i.float()
+        print("i:",i," ",len(depths))
 
     rgb_medium += T_obj*medium_rgb*torch.exp(-medium_bs*prev_depth)
 
