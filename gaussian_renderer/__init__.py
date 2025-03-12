@@ -178,7 +178,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, radii, depth, xys_tensor, depths_tensor, conic_tensor = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
+    rendered_image, radii, depth , depths_tensor, xys_tensor, conic_tensor= rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,
