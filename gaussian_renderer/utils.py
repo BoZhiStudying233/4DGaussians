@@ -6,7 +6,7 @@ import torch
 from jaxtyping import Float, Int
 from torch import Tensor
 
-import water_splatting.cuda as _C
+from diff_gaussian_rasterization import _C
 
 
 def map_gaussian_to_intersects(

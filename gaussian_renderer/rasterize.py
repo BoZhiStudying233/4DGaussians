@@ -6,8 +6,9 @@ import torch
 from jaxtyping import Float, Int
 from torch import Tensor
 from torch.autograd import Function
+from diff_gaussian_rasterization import _C
 
-import water_splatting.cuda as _C
+
 from .utils import bin_and_sort_gaussians, compute_cumulative_intersects
 
 
