@@ -17,7 +17,7 @@ from gaussian_renderer.sh import spherical_harmonics
 from gaussian_renderer.rasterize import rasterize_gaussians
 
 import math
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+from watersplatting import  GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from time import time as get_time
@@ -40,25 +40,25 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     
     means3D = pc.get_xyz#猜测pc是point cloud的意思
     if cam_type != "PanopticSports":
-        tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
-        tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
-        raster_settings = GaussianRasterizationSettings(
-            image_height=int(viewpoint_camera.image_height),
-            image_width=int(viewpoint_camera.image_width),
-            tanfovx=tanfovx,
-            tanfovy=tanfovy,
-            bg=bg_color,
-            scale_modifier=scaling_modifier,
-            viewmatrix=viewpoint_camera.world_view_transform.cuda(),
-            projmatrix=viewpoint_camera.full_proj_transform.cuda(),
-            sh_degree=pc.active_sh_degree,
-            campos=viewpoint_camera.camera_center.cuda(),
-            prefiltered=False,
-            debug=pipe.debug
-        )
+        # tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
+        # tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
+        # raster_settings = GaussianRasterizationSettings(
+        #     image_height=int(viewpoint_camera.image_height),
+        #     image_width=int(viewpoint_camera.image_width),
+        #     tanfovx=tanfovx,
+        #     tanfovy=tanfovy,
+        #     bg=bg_color,
+        #     scale_modifier=scaling_modifier,
+        #     viewmatrix=viewpoint_camera.world_view_transform.cuda(),
+        #     projmatrix=viewpoint_camera.full_proj_transform.cuda(),
+        #     sh_degree=pc.active_sh_degree,
+        #     campos=viewpoint_camera.camera_center.cuda(),
+        #     prefiltered=False,
+        #     debug=pipe.debug
+        # )
         time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)#重复时间张量。时间张量会被扩展成一个形状为 (Gaussian点的数量, 1) 的矩阵，这样每个 Gaussian 点都拥有相应的时间信息
     else:
-        raster_settings = viewpoint_camera['camera']#viewpoint_camera是一个复杂的量，好像与scene这个类有关。里面包含了batch_size个camera，每个camera都有自己的属性，
+        # raster_settings = viewpoint_camera['camera']#viewpoint_camera是一个复杂的量，好像与scene这个类有关。里面包含了batch_size个camera，每个camera都有自己的属性，
         time=torch.tensor(viewpoint_camera['time']).to(means3D.device).repeat(means3D.shape[0],1)
         
 

@@ -1,6 +1,6 @@
 """Python bindings for SH"""
 
-from diff_gaussian_rasterization import _C
+from watersplatting import _C
 
 from jaxtyping import Float
 from torch import Tensor

@@ -7,7 +7,7 @@ from jaxtyping import Float
 from torch import Tensor
 from torch.autograd import Function
 
-from diff_gaussian_rasterization import _C
+from watersplatting import _C
 
 def project_gaussians(
     means3d: Float[Tensor, "*batch 3"],

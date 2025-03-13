@@ -8,6 +8,7 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
+import matplotlib.pyplot as plt
 import wandb
 
 import numpy as np
@@ -194,11 +195,18 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             else:
                 gt_image  = viewpoint_cam['image'].cuda()
             
+
             gt_images.append(gt_image.unsqueeze(0))
             radii_list.append(radii.unsqueeze(0))
             visibility_filter_list.append(visibility_filter.unsqueeze(0))
             viewspace_point_tensor_list.append(viewspace_point_tensor)
-            print("image.shape:",image.shape,"gt_image.shape:",gt_image.shape)
+    
+            # image_vis = render_pkg["render_image"].detach().cpu().permute(1, 2, 0).numpy()
+            # plt.figure(figsize=(10, 10))
+            # plt.imshow(image_vis)
+            # plt.axis('off')
+            # plt.show()
+    
 
         radii = torch.cat(radii_list,0).max(dim=0).values
         visibility_filter = torch.cat(visibility_filter_list).any(dim=0)
