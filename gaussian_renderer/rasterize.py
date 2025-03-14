@@ -138,7 +138,7 @@ class _RasterizeGaussians(Function):
         img_size = (img_width, img_height, 1)
 
         num_intersects, cum_tiles_hit = compute_cumulative_intersects(num_tiles_hit)
-
+        # print("num_intersects:", num_intersects)
         if num_intersects < 1:
             out_img = (
                 torch.ones(img_height, img_width, colors.shape[-1], device=xys.device)
@@ -149,6 +149,11 @@ class _RasterizeGaussians(Function):
             final_Ts = torch.zeros(img_height, img_width, device=xys.device)
             final_idx = torch.zeros(img_height, img_width, device=xys.device)
             first_idx = torch.zeros(img_height, img_width, device=xys.device)
+
+            out_clr = torch.zeros_like(out_img)
+            out_medium = torch.zeros_like(out_img)
+            depth_im = None
+            print("num_intersects < 1")
         else:
             (
                 isect_ids_unsorted,
@@ -167,8 +172,10 @@ class _RasterizeGaussians(Function):
                 block_width,
             )
             if colors.shape[-1] == 3:
+                # print("rasterize_forward")
                 rasterize_fn = _C.rasterize_forward
             else:
+                # print("nd_rasterize_forward")
                 rasterize_fn = _C.nd_rasterize_forward
 
             out_img, out_clr, out_medium, depth_im, final_Ts, final_idx, first_idx = rasterize_fn(
@@ -210,6 +217,7 @@ class _RasterizeGaussians(Function):
             first_idx,
         )
         
+        # print("out_clr:", out_clr[0][0])
         if return_alpha:
             out_alpha = 1 - final_Ts
             return out_img, out_clr, out_medium, depth_im, out_alpha

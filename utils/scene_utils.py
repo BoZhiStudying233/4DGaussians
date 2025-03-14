@@ -15,11 +15,11 @@ import copy
 
 
 def render_training_image(scene, gaussians, viewpoints, render_func, pipe, background, stage, iteration, time_now, dataset_type):
-    def render(gaussians, viewpoint, path, scaling, cam_type):
+    def render(gaussians, viewpoint, path, iteration, scaling, cam_type):
         global last_iter
         
         # scaling_copy = gaussians._scaling
-        render_pkg = render_func(viewpoint, gaussians, pipe, background, stage=stage, cam_type=cam_type)
+        render_pkg = render_func(viewpoint, gaussians, pipe, background, iteration, stage=stage, cam_type=cam_type)
         label1 = f"stage:{stage},iter:{iteration}"
         times =  time_now/60
         if times < 1:
@@ -39,10 +39,10 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
         rgb_medium_np = render_pkg["rgb_medium"].permute(1,2,0).cpu().numpy()
 
 
-        depth_np = depth.permute(1, 2, 0).cpu().numpy()
-        depth_np /= depth_np.max()
-        depth_np = np.repeat(depth_np, 3, axis=2)
-        image_np = np.concatenate((gt_np, image_np, depth_np, render_np, rgb_medium_np), axis=1)
+        # depth_np = depth.permute(1, 2, 0).cpu().numpy()
+        # depth_np /= depth_np.max()
+        # depth_np = np.repeat(depth_np, 3, axis=2)
+        image_np = np.concatenate((gt_np, image_np, render_np, rgb_medium_np), axis=1)
         image_with_labels = Image.fromarray((np.clip(image_np,0,1) * 255).astype('uint8'))  
         draw1 = ImageDraw.Draw(image_with_labels)
         font = ImageFont.truetype('./utils/TIMES.TTF', size=40) 
@@ -75,7 +75,7 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
     
     for idx in range(len(viewpoints)):
         image_save_path = os.path.join(image_path,f"{iteration}_{idx}.jpg")
-        render(gaussians,viewpoints[idx],image_save_path,scaling = 1,cam_type=dataset_type)
+        render(gaussians,viewpoints[idx],image_save_path, iteration, scaling = 1,cam_type=dataset_type)
     pc_mask = gaussians.get_opacity
     pc_mask = pc_mask > 0.1
 

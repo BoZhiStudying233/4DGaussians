@@ -91,6 +91,9 @@ class GaussianModel:
             implementation= "tcnn",
         )
 
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.medium_mlp = self.medium_mlp.to(device)
+
 
     def capture(self):
         return (

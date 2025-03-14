@@ -20,7 +20,7 @@ def num_sh_bases(degree: int):
 
 
 def deg_from_sh(num_bases: int):
-    print("num_bases:", num_bases)
+    # print("num_bases:", num_bases)
     if num_bases == 1:
         return 0
     if num_bases == 4:

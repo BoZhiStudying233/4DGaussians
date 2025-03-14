@@ -8,6 +8,6 @@ tensorboard_3d
 screenshots
 data/
 data
-submodules/
+# submodules/ 
 wandb/*
 SIBR_viewers/*

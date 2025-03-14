@@ -21,7 +21,7 @@ from watersplatting import  GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from time import time as get_time
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, iterations, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, iterations = None, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None):
     """
     Render the scene. 
     
@@ -103,9 +103,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     )
 
     # #当渲染清澈介质（无介质）时候，用此三句话
-    # medium_rgb = torch.zeros_like(medium_rgb)
-    # medium_bs = torch.zeros_like(medium_bs)
-    # medium_attn = torch.zeros_like(medium_attn)
+    medium_rgb = torch.zeros_like(medium_rgb)
+    medium_bs = torch.zeros_like(medium_bs)
+    medium_attn = torch.zeros_like(medium_attn)
     
    
         
@@ -114,7 +114,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # deformation = pc.get_deformation
 
     
-    means2D = screenspace_points
+    xys = screenspace_points
     opacity = pc._opacity
     shs = pc.get_features
 
@@ -171,21 +171,21 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color    
 
 
-    viewmat = torch.zeros((4, 4), device=R.device)
+    viewmat = torch.eye(4, device=R.device, dtype=R.dtype)
     viewmat[:3, :3] = R  # 旋转部分
     viewmat[:3, 3] = T   # 平移部分
-    viewmat[3, 3] = 1    # 齐次坐标系数
 
     BLOCK_WIDTH = 16
 
+    
 
-    print("begin")
-    quats_crop = rotation_matrix_to_quaternion(R)
+    # print("begin")
+    # quats_crop = rotation_matrix_to_quaternion(R)
     xys, depths, radii, conics, comp, num_tiles_hit, cov3d = project_gaussians(  # type: ignore
             means3D_final,
             torch.exp(scales_final),
             1,
-            quats_crop / quats_crop.norm(dim=-1, keepdim=True),
+            rotations_final,
             viewmat.squeeze()[:3, :],
             viewpoint_camera.FoVx,
             viewpoint_camera.FoVy,
@@ -197,7 +197,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             clip_thresh= 0.01,
         )  # type: ignore
 
-    print("end")
+    # print("end")
 
 
     # rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -208,13 +208,14 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
  
     # print("colors_crop.shape:",colors_crop.shape)
 
-    viewdirs = means3D_final.detach() - viewmat.detach()[..., :3, 3]  # (N, 3)
+    viewdirs = means3D_final.detach() - viewmat.detach()[..., :3, 3]  # (N, 3) 从相机坐标系指向高斯的向量
     viewdirs = viewdirs / viewdirs.norm(dim=-1, keepdim=True)
-    n = min(iterations // 1000, 4)
+    n = pc.active_sh_degree
     rgbs = spherical_harmonics(n, viewdirs, colors_crop)
     rgbs = torch.clamp(rgbs + 0.5, min=0.0)  # type: ignore
 
-
+    if xys.requires_grad !=False:
+        xys.retain_grad()
 
     rendered_image, rgb_clear, rgb_medium, depth_im, alpha = rasterize_gaussians(  # type: ignore
         xys,
@@ -235,7 +236,6 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         return_alpha=True,
         step = 0,#这个量在后面没有用到，所以随便给了值
     )  # type: ignore
-
 
 
 
@@ -264,48 +264,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rgb_medium = rgb_medium.permute(2,0,1)
     return {"render_image": rendered_image,
             "rgb_medium": rgb_medium,
-            "viewspace_points": screenspace_points,
+            "viewspace_points": xys,
             "visibility_filter" : radii > 0,#visibility_filter用于过滤掉被视锥体裁剪掉的高斯点。看不见的点就不会参与后续的梯度更新。
             "radii": radii,#radii用于进行高斯密度的更新。
             "depth":depth_im}
 
 
-
-
-def rotation_matrix_to_quaternion(matrix):
-    """
-    将旋转矩阵转换为四元数。
-
-    Args:
-        matrix (torch.Tensor): 形状为 (3, 3) 的旋转矩阵。
-
-    Returns:
-        torch.Tensor: 形状为 (4,) 的四元数，格式为 [w, x, y, z]。
-    """
-    tr = torch.trace(matrix)
-    if tr > 0:
-        S = torch.sqrt(tr + 1.0) * 2
-        w = 0.25 * S
-        x = (matrix[2, 1] - matrix[1, 2]) / S
-        y = (matrix[0, 2] - matrix[2, 0]) / S
-        z = (matrix[1, 0] - matrix[0, 1]) / S
-    elif (matrix[0, 0] > matrix[1, 1]) and (matrix[0, 0] > matrix[2, 2]):
-        S = torch.sqrt(1.0 + matrix[0, 0] - matrix[1, 1] - matrix[2, 2]) * 2
-        w = (matrix[2, 1] - matrix[1, 2]) / S
-        x = 0.25 * S
-        y = (matrix[0, 1] + matrix[1, 0]) / S
-        z = (matrix[0, 2] + matrix[2, 0]) / S
-    elif matrix[1, 1] > matrix[2, 2]:
-        S = torch.sqrt(1.0 + matrix[1, 1] - matrix[0, 0] - matrix[2, 2]) * 2
-        w = (matrix[0, 2] - matrix[2, 0]) / S
-        x = (matrix[0, 1] + matrix[1, 0]) / S
-        y = 0.25 * S
-        z = (matrix[1, 2] + matrix[2, 1]) / S
-    else:
-        S = torch.sqrt(1.0 + matrix[2, 2] - matrix[0, 0] - matrix[1, 1]) * 2
-        w = (matrix[1, 0] - matrix[0, 1]) / S
-        x = (matrix[0, 2] + matrix[2, 0]) / S
-        y = (matrix[1, 2] + matrix[2, 1]) / S
-        z = 0.25 * S
-    return torch.tensor([w, x, y, z], dtype=matrix.dtype, device=matrix.device)
 

@@ -187,7 +187,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         viewspace_point_tensor_list = []
         for viewpoint_cam in viewpoint_cams:
             render_pkg = render(viewpoint_cam, gaussians, pipe, background, iteration,stage=stage,cam_type=scene.dataset_type)#这里是整个光栅化的过程，根据此相机视角生成图像
-            print("render_pkg['render_image'].shape:",render_pkg["render_image"].shape,"rgb_medium.shape:",render_pkg["rgb_medium"].shape)
+            # print("render_pkg['render_image'].shape:",render_pkg["render_image"].shape,"rgb_medium.shape:",render_pkg["rgb_medium"].shape)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render_image"] + render_pkg["rgb_medium"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             images.append(image.unsqueeze(0))
             if scene.dataset_type!="PanopticSports":
@@ -241,8 +241,11 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 f"{stage}/train_psnr": psnr_.item(),
                 "iteration": iteration
             })
+        # print("iteration:",iteration)
         loss.backward()
 
+
+        # torch.cuda.empty_cache()
         # 在loss.backward()后添加
         # total_norm = 0
         # for name, param in gaussians.named_parameters():
@@ -291,7 +294,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                     or (iteration < 3000 and iteration % 50 == 49) \
                         or (iteration < 60000 and iteration %  100 == 99) :
                     # breakpoint()
-                        render_training_image(scene, gaussians, [test_cams[iteration%len(test_cams)]], render, pipe, background, stage+"test", iteration,timer.get_elapsed_time(),scene.dataset_type)#抽取一个视角，然后渲染图片并保存
+                        render_training_image(scene, gaussians, [test_cams[ iteration%len(test_cams)]], render, pipe, background, stage+"test", iteration,timer.get_elapsed_time(),scene.dataset_type)#抽取一个视角，然后渲染图片并保存
                         render_training_image(scene, gaussians, [train_cams[iteration%len(train_cams)]], render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
                         # render_training_image(scene, gaussians, train_cams, render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
 
@@ -408,7 +411,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
-                    image = torch.clamp(renderFunc(viewpoint, scene.gaussians,stage=stage, cam_type=dataset_type, *renderArgs)["render"], 0.0, 1.0)
+                    result = renderFunc(viewpoint, scene.gaussians,stage=stage, cam_type=dataset_type, *renderArgs)
+                    image = torch.clamp(result["render_image"] + result["rgb_medium"], 0.0, 1.0)
                     if dataset_type == "PanopticSports":
                         gt_image = torch.clamp(viewpoint["image"].to("cuda"), 0.0, 1.0)
                     else:

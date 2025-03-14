@@ -112,7 +112,7 @@ def build_scaling_rotation(s, r):#s为缩放因子，r为旋转四元数
     L[:,1,1] = s[:,1]
     L[:,2,2] = s[:,2]
 
-    L = R @ L#两个矩阵想乘
+    L = R @ L#两个矩阵相乘
     return L
 
 def safe_state(silent):
