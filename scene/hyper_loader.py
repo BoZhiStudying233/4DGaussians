@@ -93,14 +93,14 @@ class Load_hyper_data(Dataset):
         self.all_img_origin = self.all_img
         self.all_depth = [f'{datadir}/depth/{int(1/ratio)}x/{i}.npy' for i in self.all_img]
 
-        self.all_img = [f'{datadir}/rgb/{int(1/ratio)}x/{i}.png' for i in self.all_img]#根据缩放比例读入相应的图片
+        self.all_img = [f'{datadir}/rgb/{int(1/ratio)}x/{i}.jpg' for i in self.all_img]#根据缩放比例读入相应的图片   //修改图片类型
 
         self.h, self.w = self.all_cam_params[0].image_shape
         self.map = {}
         self.image_one = Image.open(self.all_img[0])
         self.image_one_torch = PILtoTorch(self.image_one,None).to(torch.float32)
         if os.path.exists(os.path.join(datadir,"covisible")):
-            self.image_mask = [f'{datadir}/covisible/{int(2)}x/val/{i}.png' for i in self.all_img_origin]
+            self.image_mask = [f'{datadir}/covisible/{int(2)}x/val/{i}.jpg' for i in self.all_img_origin]
         else:
             self.image_mask = None
         

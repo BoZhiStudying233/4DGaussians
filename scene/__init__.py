@@ -101,6 +101,7 @@ class Scene:
                                                     "iteration_" + str(self.loaded_iter),
                                                    ))
         else:
+            print("create gaussians from point cloud")
             self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)#从点云来创建高斯模型
 
     def save(self, iteration, stage):
