@@ -110,9 +110,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     )
 
     # #当渲染清澈介质（无介质）时候，用此三句话
-    medium_rgb = torch.zeros_like(medium_rgb)
-    medium_bs = torch.zeros_like(medium_bs)
-    medium_attn = torch.zeros_like(medium_attn)
+    # medium_rgb = torch.zeros_like(medium_rgb)
+    # medium_bs = torch.zeros_like(medium_bs)
+    # medium_attn = torch.zeros_like(medium_attn)
     
    
         
@@ -246,7 +246,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
 
      
-
+    
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
