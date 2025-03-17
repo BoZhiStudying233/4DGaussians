@@ -129,7 +129,7 @@ class _RasterizeGaussians(Function):
         step: Optional[int] = None,
     ) -> Tensor:
         num_points = xys.size(0)
-        tile_bounds = (
+        tile_bounds = (#含有的瓦片的个数
             (img_width + block_width - 1) // block_width,
             (img_height + block_width - 1) // block_width,
             1,

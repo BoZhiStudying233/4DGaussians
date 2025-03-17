@@ -68,10 +68,12 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     R = torch.from_numpy(viewpoint_camera.R).float().cuda()    #旋转矩阵，从世界坐标系转到相机坐标系
     T = torch.from_numpy(viewpoint_camera.T).float().cuda()    #平移矩阵，从世界坐标系转到相机坐标系
 
-    S = torch.diag(torch.tensor([1, -1, -1], device=R.device, dtype=R.dtype))  # 3x3 缩放矩阵    
-    R = S @ R
-    T = S @ T
-
+    # S = torch.diag(torch.tensor([1, -1, -1], device=R.device, dtype=R.dtype))  # 3x3 缩放矩阵    
+    # R = S @ R
+    # T = S @ T
+    # R = R.T
+    print("R:",R)   
+    print("viewmatrix:",viewpoint_camera.world_view_transform)
     H = viewpoint_camera.image_height
     W = viewpoint_camera.image_width
     y = torch.linspace(0., H, H, device="cuda")
@@ -80,11 +82,11 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     yy, xx = torch.meshgrid(y, x)
     yy = (yy - cy) / viewpoint_camera.FoVy
     xx = (xx - cx) / viewpoint_camera.FoVx
-    directions = torch.stack([xx, yy, torch.ones_like(xx)], dim=-1)
+    directions = torch.stack([xx, yy, torch.ones_like(xx)], dim=-1)#(x,y,1)
     norms = torch.linalg.norm(directions, dim=-1, keepdim=True)
     directions = directions / norms
     directions = directions @ R.T       #也就是将方向向量转换到世界坐标系下
-    #colmap出来的R是world2camera，因此需要将其转换为camera2world
+    #colmap出来的R是world2camera，因此需要将其转换为camera2world。但我认为此处应当右乘。
 
     directions_flat = directions.view(-1, 3)
     directions_encoded = pc.direction_encoding(directions_flat)
@@ -110,9 +112,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     )
 
     # #当渲染清澈介质（无介质）时候，用此三句话
-    # medium_rgb = torch.zeros_like(medium_rgb)
-    # medium_bs = torch.zeros_like(medium_bs)
-    # medium_attn = torch.zeros_like(medium_attn)
+    medium_rgb = torch.zeros_like(medium_rgb)
+    medium_bs = torch.zeros_like(medium_bs)
+    medium_attn = torch.zeros_like(medium_attn)
     
    
         
@@ -121,7 +123,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # deformation = pc.get_deformation
 
     
-    xys = screenspace_points
+    means2D = screenspace_points
     opacity = pc._opacity
     shs = pc.get_features
 
@@ -184,7 +186,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     BLOCK_WIDTH = 16
 
-    
+    print("viewmat:"    ,viewmat)
 
     # print("begin")
     # quats_crop = rotation_matrix_to_quaternion(R)
@@ -252,7 +254,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # time3 = get_time()
     rendered_image4D, _, depth = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
         means3D = means3D_final,
-        means2D = None,
+        means2D = means2D,
         shs = shs_final,
         colors_precomp = colors_precomp,
         opacities = opacity,
@@ -268,16 +270,22 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     image_vis1 = rendered_image.detach().cpu().numpy()
     image_vis2 = rendered_image4D.detach().cpu().permute(1, 2, 0).numpy()
-    plt.figure(figsize=(10, 10))
-    plt.subplot(1, 2, 1)
+    image_vis3 = rgb_medium.detach().cpu().numpy()
+    plt.figure(figsize=(15, 5))
 
+    # 创建一个1行3列的子图布局
+    plt.subplot(1, 3, 1)
     plt.imshow(image_vis1)
     plt.axis('off')  # 关闭坐标轴
-    plt.subplot(1, 2, 2)
 
+    plt.subplot(1, 3, 2)
     plt.imshow(image_vis2)
-
     plt.axis('off')
+
+    plt.subplot(1, 3, 3)
+    plt.imshow(image_vis3)
+    plt.axis('off')
+
     plt.show()
 
 
