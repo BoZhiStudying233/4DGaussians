@@ -58,6 +58,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
+    # bg_color = [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
     iter_start = torch.cuda.Event(enable_timing = True)#创建CUDA事件对象iter_start，并且启用了时间戳记录功能
@@ -289,7 +290,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                     or (iteration < 3000 and iteration % 50 == 49) \
                         or (iteration < 60000 and iteration %  100 == 99) :
                     # breakpoint()
+                        # print("rendering0")
                         render_training_image(scene, gaussians, [test_cams[ iteration%len(test_cams)]], render, pipe, background, stage+"test", iteration,timer.get_elapsed_time(),scene.dataset_type)#抽取一个视角，然后渲染图片并保存
+                        # print("rendering1")
                         render_training_image(scene, gaussians, [train_cams[iteration%len(train_cams)]], render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
                         # render_training_image(scene, gaussians, train_cams, render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
 

@@ -177,7 +177,7 @@ def bin_and_sort_gaussians(
         tile_bounds,
         block_size,
     )
-    isect_ids_sorted, sorted_indices = torch.sort(isect_ids)
+    isect_ids_sorted, sorted_indices = torch.sort(isect_ids)#由于 isect_ids 是由 tile 和 depth id 组合而成的，所以排序时会先比较 tile 的大小，如果 tile 相同，再比较 depth id 的大小。
     gaussian_ids_sorted = torch.gather(gaussian_ids, 0, sorted_indices)
     tile_bins = get_tile_bin_edges(num_intersects, isect_ids_sorted, tile_bounds)
     return isect_ids, gaussian_ids, isect_ids_sorted, gaussian_ids_sorted, tile_bins

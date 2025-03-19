@@ -121,6 +121,8 @@ class _ProjectGaussians(Function):
             block_width,
             clip_thresh,
         )
+        # print("cov3d: ", cov3d)
+        # print("xys: ", xys)
 
         # Save non-tensors.
         ctx.img_height = img_height

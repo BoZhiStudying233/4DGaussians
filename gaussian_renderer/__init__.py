@@ -72,8 +72,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # R = S @ R
     # T = S @ T
     # R = R.T
-    print("R:",R)   
-    print("viewmatrix:",viewpoint_camera.world_view_transform)
+    # print("R:",R)   
+    # print("viewmatrix:",viewpoint_camera.world_view_transform)
     H = viewpoint_camera.image_height
     W = viewpoint_camera.image_width
     y = torch.linspace(0., H, H, device="cuda")
@@ -152,6 +152,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         raise NotImplementedError
 
 
+    scales_final = torch.zeros_like(scales)#测试用
 
 
     
@@ -178,7 +179,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             # shs = 
     else:
         colors_precomp = override_color    
-
+ 
 
     viewmat = torch.eye(4, device=R.device, dtype=R.dtype)
     viewmat[:3, :3] = R  # 旋转部分
@@ -186,18 +187,23 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     BLOCK_WIDTH = 16
 
-    print("viewmat:"    ,viewmat)
-
+    # print("viewmat:"    ,viewmat)
+    # print("means3D_final:",means3D_final)
+    # print("scales_final:",scales_final)
+    # print("rotations_final:",rotations_final)
     # print("begin")
     # quats_crop = rotation_matrix_to_quaternion(R)
+    # print("viewpoint_camera.FoVx ")
+    fx = W/(2.0 * tanfovx)
+    fy = H/(2.0 * tanfovy) 
     xys, depths, radii, conics, comp, num_tiles_hit, cov3d = project_gaussians(  # type: ignore
             means3D_final,
-            torch.exp(scales_final),
+            scales_final,#似乎不应该加torch.exp，会导致之后cov3d与4DGS的不一样
             1,
             rotations_final,
             viewmat.squeeze()[:3, :],
-            viewpoint_camera.FoVx,
-            viewpoint_camera.FoVy,
+            fx,
+            fy,
             cx,
             cy,
             H,
@@ -207,7 +213,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         )  # type: ignore
 
     # print("end")
-
+    # print("conics:",conics)
+    # print("cov3d:",radii)
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
     xys_grad_abs = torch.zeros_like(xys)
@@ -220,11 +227,14 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     viewdirs = means3D_final.detach() - viewmat.detach()[..., :3, 3]  # (N, 3) 从相机坐标系指向高斯的向量
     viewdirs = viewdirs / viewdirs.norm(dim=-1, keepdim=True)
     n = pc.active_sh_degree
+    # print("n:",n)
     rgbs = spherical_harmonics(n, viewdirs, colors_crop)
+    # print("rgbs1:",rgbs)
     rgbs = torch.clamp(rgbs + 0.5, min=0.0)  # type: ignore
-
+    # print("rgbs2:",rgbs)
     if xys.requires_grad !=False:
         xys.retain_grad()
+
 
     rendered_image, rgb_clear, rgb_medium, depth_im, alpha = rasterize_gaussians(  # type: ignore
         xys,
@@ -241,7 +251,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         H,
         W,
         BLOCK_WIDTH,
-        background=medium_rgb,
+        background=torch.zeros_like(medium_rgb),
         return_alpha=True,
         step = 0,#这个量在后面没有用到，所以随便给了值
     )  # type: ignore
@@ -252,15 +262,18 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image4D, _, depth = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
-        means3D = means3D_final,
-        means2D = means2D,
-        shs = shs_final,
-        colors_precomp = colors_precomp,
-        opacities = opacity,
-        scales = scales_final,
-        rotations = rotations_final,
-        cov3D_precomp = cov3D_precomp)
+    # rendered_image4D, _, depth = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
+    #     means3D = means3D_final,
+    #     means2D = means2D,
+    #     shs = shs_final,
+    #     colors_precomp = colors_precomp,
+    #     opacities = opacity,
+    #     scales = scales_final,
+    #     rotations = rotations_final,
+    #     cov3D_precomp = cov3D_precomp)
+    
+
+
     # time4 = get_time()
     # print("rasterization:",time4-time3)
     # breakpoint()
@@ -268,25 +281,25 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # They will be excluded from value updates used in the splitting criteria.
 
 
-    image_vis1 = rendered_image.detach().cpu().numpy()
-    image_vis2 = rendered_image4D.detach().cpu().permute(1, 2, 0).numpy()
-    image_vis3 = rgb_medium.detach().cpu().numpy()
-    plt.figure(figsize=(15, 5))
+    # image_vis1 = rendered_image.detach().cpu().numpy()
+    # image_vis2 = rendered_image4D.detach().cpu().permute(1, 2, 0).numpy()
+    # image_vis3 = rgb_medium.detach().cpu().numpy()
+    # plt.figure(figsize=(15, 5))
 
-    # 创建一个1行3列的子图布局
-    plt.subplot(1, 3, 1)
-    plt.imshow(image_vis1)
-    plt.axis('off')  # 关闭坐标轴
+    # # 创建一个1行3列的子图布局
+    # plt.subplot(1, 3, 1)
+    # plt.imshow(image_vis1)
+    # plt.axis('off')  # 关闭坐标轴
 
-    plt.subplot(1, 3, 2)
-    plt.imshow(image_vis2)
-    plt.axis('off')
+    # plt.subplot(1, 3, 2)
+    # plt.imshow(image_vis2)
+    # plt.axis('off')
 
-    plt.subplot(1, 3, 3)
-    plt.imshow(image_vis3)
-    plt.axis('off')
+    # plt.subplot(1, 3, 3)
+    # plt.imshow(image_vis3)
+    # plt.axis('off')
 
-    plt.show()
+    # plt.show()
 
 
     rendered_image = rendered_image.permute(2,0,1)

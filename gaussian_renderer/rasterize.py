@@ -73,7 +73,7 @@ def rasterize_gaussians(
     #         background.shape[0] == colors.shape[-1]
     #     ), f"incorrect shape of background color tensor, expected shape {colors.shape[-1]}"
     # else:
-    background = torch.ones(
+    background = torch.zeros(
         colors.shape[-1], dtype=torch.float32, device=colors.device
     )
 
@@ -129,7 +129,7 @@ class _RasterizeGaussians(Function):
         step: Optional[int] = None,
     ) -> Tensor:
         num_points = xys.size(0)
-        tile_bounds = (#含有的瓦片的个数
+        tile_bounds = (#整个图片含有的瓦片的个数
             (img_width + block_width - 1) // block_width,
             (img_height + block_width - 1) // block_width,
             1,
@@ -177,7 +177,8 @@ class _RasterizeGaussians(Function):
             else:
                 # print("nd_rasterize_forward")
                 rasterize_fn = _C.nd_rasterize_forward
-
+            # print("gaussian_ids_sorted:", gaussian_ids_sorted)
+            # print("tile_bins:", tile_bins)
             out_img, out_clr, out_medium, depth_im, final_Ts, final_idx, first_idx = rasterize_fn(
                 tile_bounds,
                 block,
@@ -206,7 +207,7 @@ class _RasterizeGaussians(Function):
             xys_grad_abs,
             conics,
             colors,
-            opacity,
+            opacity, 
             medium_rgb,
             medium_bs,
             medium_attn,

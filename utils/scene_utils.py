@@ -17,8 +17,9 @@ import copy
 def render_training_image(scene, gaussians, viewpoints, render_func, pipe, background, stage, iteration, time_now, dataset_type):
     def render(gaussians, viewpoint, path, iteration, scaling, cam_type):
         global last_iter
-        
         # scaling_copy = gaussians._scaling
+        # print("rendering2")
+
         render_pkg = render_func(viewpoint, gaussians, pipe, background, iteration, stage=stage, cam_type=cam_type)
         label1 = f"stage:{stage},iter:{iteration}"
         times =  time_now/60
@@ -72,7 +73,8 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
         os.makedirs(point_cloud_path)
     if not os.path.exists(image_path):
         os.makedirs(image_path)
-    
+    # print("rendering--")
+
     for idx in range(len(viewpoints)):
         image_save_path = os.path.join(image_path,f"{iteration}_{idx}.jpg")
         render(gaussians,viewpoints[idx],image_save_path, iteration, scaling = 1,cam_type=dataset_type)
