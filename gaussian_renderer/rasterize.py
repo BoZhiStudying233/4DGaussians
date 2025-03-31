@@ -73,7 +73,7 @@ def rasterize_gaussians(
     #         background.shape[0] == colors.shape[-1]
     #     ), f"incorrect shape of background color tensor, expected shape {colors.shape[-1]}"
     # else:
-    background = torch.zeros(
+    background = torch.ones(
         colors.shape[-1], dtype=torch.float32, device=colors.device
     )
 

@@ -58,7 +58,8 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     for idx, view in enumerate(tqdm(views, desc="Process Rendering")):
         if idx == 0:time1 = time()
         # print("idx:",idx,"views:",len(views))
-        rendering = render(view, gaussians, pipeline, background,cam_type=cam_type)["render"]
+        result = render(view, gaussians, pipeline, background,cam_type=cam_type)
+        rendering = result["render_image"] + result["rgb_medium"]
         render_images.append(to8b(rendering).transpose(1,2,0))
         render_list.append(rendering)
         if name in ["train", "test"]:

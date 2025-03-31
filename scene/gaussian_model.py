@@ -30,7 +30,6 @@ from nerfstudio.field_components.encodings import SHEncoding
 
 
 class GaussianModel:
-
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)#得到旋转矩阵和缩放矩阵
@@ -88,12 +87,15 @@ class GaussianModel:
             out_dim=9,
             activation=nn.Sigmoid(),
             out_activation=None,
-            implementation= "tcnn",
+            implementation= "torch",
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.medium_mlp = self.medium_mlp.to(device)
 
+    def print_MLP_params(self):
+        for name, param in self.medium_mlp.named_parameters():
+            print(f"Parameter name: {name}, value: {param.data}")
 
     def capture(self):
         return (
@@ -211,7 +213,10 @@ class GaussianModel:
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
+            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
+            #添加MLP参数
+            {'params': self.medium_mlp.parameters(), 'lr': training_args.medium_MLP_lr, "name": "medium_mlp"}
+
             
         ]
 
@@ -367,6 +372,8 @@ class GaussianModel:
         for group in self.optimizer.param_groups:
             if len(group["params"]) > 1:
                 continue
+            if group["name"] == "medium_mlp":#因为MLP的参数量固定，所以不需要进行下面的操作
+                continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
@@ -403,6 +410,9 @@ class GaussianModel:
         for group in self.optimizer.param_groups:
             if len(group["params"])>1:continue
             assert len(group["params"]) == 1
+            # print("group[name]:",group["name"])
+            if group["name"] == "medium_mlp":#因为MLP的参数量固定，所以不需要进行下面的操作
+                continue
             extension_tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
@@ -430,7 +440,7 @@ class GaussianModel:
         "rotation" : new_rotation,
         # "deformation": new_deformation
        }
-
+        # print("Wow!")
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
@@ -476,10 +486,14 @@ class GaussianModel:
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent, density_threshold=20, displacement_scale=20, model_path=None, iteration=None, stage=None):
         grads_accum_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
-        
-
+        # print("Hi!")
+        # print("grads_accum_mask:",grads_accum_mask)
+        # print("grads_accum_mask.True:", grads_accum_mask.sum().item())       
         selected_pts_mask = torch.logical_and(grads_accum_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
+        
+        # print("selected_pts_mask:",selected_pts_mask)
+        # print("selected_pts_mask.True:", selected_pts_mask.sum().item())
         new_xyz = self._xyz[selected_pts_mask] 
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
@@ -535,7 +549,7 @@ class GaussianModel:
     def densify(self, max_grad, min_opacity, extent, max_screen_size, density_threshold, displacement_scale, model_path=None, iteration=None, stage=None):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
-
+        # print("Hello?")
         self.densify_and_clone(grads, max_grad, extent, density_threshold, displacement_scale, model_path, iteration, stage)
         self.densify_and_split(grads, max_grad, extent)
     def standard_constaint(self):
@@ -553,7 +567,7 @@ class GaussianModel:
 
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
-        self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor[update_filter,:2], dim=-1, keepdim=True)
+        self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor[update_filter,:2], dim=-1, keepdim=True)#grad的张量的 模值的 累计，grad的张量shape为[N,3]
         self.denom[update_filter] += 1
     @torch.no_grad()
     def update_deformation_table(self,threshold):

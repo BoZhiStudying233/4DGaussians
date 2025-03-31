@@ -110,11 +110,17 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         .view(*outputs_shape, -1)
         .to(directions)
     )
+    medium_bs = medium_bs/100
+    medium_rgb = medium_rgb
+    medium_attn = medium_attn/100#500
+    # pc.print_MLP_params()
 
-    # #当渲染清澈介质（无介质）时候，用此三句话
-    medium_rgb = torch.zeros_like(medium_rgb)
-    medium_bs = torch.zeros_like(medium_bs)
-    medium_attn = torch.zeros_like(medium_attn)
+
+
+    # # #当渲染清澈介质（无介质）时候，用此三句话
+    # medium_rgb = torch.zeros_like(medium_rgb)
+    # medium_bs = torch.zeros_like(medium_bs)
+    # medium_attn = torch.zeros_like(medium_attn)
     
    
         
@@ -152,7 +158,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         raise NotImplementedError
 
 
-    scales_final = torch.zeros_like(scales)#测试用
+    # scales_final = torch.zeros_like(scales)#测试用
 
 
     
@@ -182,10 +188,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
  
 
     viewmat = torch.eye(4, device=R.device, dtype=R.dtype)
-    viewmat[:3, :3] = R  # 旋转部分
+    viewmat[:3, :3] = R.T  # 旋转部分
     viewmat[:3, 3] = T   # 平移部分
 
-    BLOCK_WIDTH = 16
+    BLOCK_WIDTH = 16 
 
     # print("viewmat:"    ,viewmat)
     # print("means3D_final:",means3D_final)
@@ -232,9 +238,11 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # print("rgbs1:",rgbs)
     rgbs = torch.clamp(rgbs + 0.5, min=0.0)  # type: ignore
     # print("rgbs2:",rgbs)
-    if xys.requires_grad !=False:
-        xys.retain_grad()
+    # if xys.requires_grad !=False:
+    #     xys.retain_grad()
 
+    # xys[0][0] = 1501.694580
+    # xys[0][1] = 1198.735474
 
     rendered_image, rgb_clear, rgb_medium, depth_im, alpha = rasterize_gaussians(  # type: ignore
         xys,
@@ -256,7 +264,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         step = 0,#这个量在后面没有用到，所以随便给了值
     )  # type: ignore
 
-
+    # print("xys:",xys)
      
     
 
@@ -284,20 +292,24 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # image_vis1 = rendered_image.detach().cpu().numpy()
     # image_vis2 = rendered_image4D.detach().cpu().permute(1, 2, 0).numpy()
     # image_vis3 = rgb_medium.detach().cpu().numpy()
+    # image_vis4 = rgb_clear.detach().cpu().numpy()
     # plt.figure(figsize=(15, 5))
 
     # # 创建一个1行3列的子图布局
-    # plt.subplot(1, 3, 1)
+    # plt.subplot(1, 4, 1)
     # plt.imshow(image_vis1)
     # plt.axis('off')  # 关闭坐标轴
 
-    # plt.subplot(1, 3, 2)
+    # plt.subplot(1, 4, 2)
     # plt.imshow(image_vis2)
     # plt.axis('off')
 
-    # plt.subplot(1, 3, 3)
+    # plt.subplot(1, 4, 3)
     # plt.imshow(image_vis3)
     # plt.axis('off')
+
+    # plt.subplot(1, 4, 4)
+    # plt.imshow(image_vis4)
 
     # plt.show()
 
@@ -306,7 +318,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rgb_medium = rgb_medium.permute(2,0,1)
     return {"render_image": rendered_image,
             "rgb_medium": rgb_medium,
-            "viewspace_points": xys,
+            "viewspace_points": xys_grad_abs,
             "visibility_filter" : radii > 0,#visibility_filter用于过滤掉被视锥体裁剪掉的高斯点。看不见的点就不会参与后续的梯度更新。
             "radii": radii,#radii用于进行高斯密度的更新。
             "depth":depth_im}

@@ -8,7 +8,13 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 import wandb
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
 
 import numpy as np
 import random
@@ -95,7 +101,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=batch_size,shuffle=True,num_workers=16,collate_fn=list)
             random_loader = True
         loader = iter(viewpoint_stack_loader)
-
+    
     
     # dynerf, zerostamp_init
     # breakpoint()
@@ -188,7 +194,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         for viewpoint_cam in viewpoint_cams:
             render_pkg = render(viewpoint_cam, gaussians, pipe, background, iteration,stage=stage,cam_type=scene.dataset_type)#这里是整个光栅化的过程，根据此相机视角生成图像
             # print("render_pkg['render_image'].shape:",render_pkg["render_image"].shape,"rgb_medium.shape:",render_pkg["rgb_medium"].shape)
-            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render_image"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             images.append(image.unsqueeze(0))
             if scene.dataset_type!="PanopticSports":
                 gt_image = viewpoint_cam.original_image.cuda()
@@ -200,9 +206,6 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             radii_list.append(radii.unsqueeze(0))
             visibility_filter_list.append(visibility_filter.unsqueeze(0))
             viewspace_point_tensor_list.append(viewspace_point_tensor)
-    
-
-    
 
         radii = torch.cat(radii_list,0).max(dim=0).values
         visibility_filter = torch.cat(visibility_filter_list).any(dim=0)
@@ -263,8 +266,15 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             os.execv(sys.executable, [sys.executable] + sys.argv)
         viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)
         for idx in range(0, len(viewspace_point_tensor_list)):
-            viewspace_point_tensor_grad = viewspace_point_tensor_grad + viewspace_point_tensor_list[idx].grad
+            viewspace_point_tensor_grad = viewspace_point_tensor_grad + viewspace_point_tensor_list[idx]
         iter_end.record()
+
+        # print("viewspace_point_tensor_grad:",viewspace_point_tensor_grad.shape)
+        if iteration == 600:
+            print("viewspace_point_tensor_grad:",viewspace_point_tensor_grad)
+            # assert False
+
+
 
         with torch.no_grad():
             # Progress bar
@@ -272,6 +282,11 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             ema_psnr_for_log = 0.4 * psnr_ + 0.6 * ema_psnr_for_log
             total_point = gaussians._xyz.shape[0]
             if iteration % 10 == 0:
+                if wandb.run is not None:
+                    wandb.log({
+                        f"{stage}/point": total_point,
+                        "iteration": iteration
+                    })
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}",
                                           "psnr": f"{psnr_:.{2}f}",
                                           "point":f"{total_point}"})
@@ -297,18 +312,12 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                         # render_training_image(scene, gaussians, train_cams, render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
 
                     # total_images.append(to8b(temp_image).transpose(1,2,0))
-                # if wandb.run is not None:
-                #     if wandb and (iteration % 500 == 0):  # 每500次迭代记录一次
-                #         rendered_img = to8b(image_tensor[0].permute(1,2,0))
-                #         wandb.log({
-                #             "render/train": wandb.Image(rendered_img),
-                #             "iteration": iteration
-                #         })
+
             timer.start()
             # Densification
-            if iteration < opt.densify_until_iter :
+            if iteration < opt.densify_until_iter :#值为10000
                 # Keep track of max radii in image-space for pruning
-                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])#更新为当前半径 radii 和原最大半径中的较大值
                 gaussians.add_densification_stats(viewspace_point_tensor_grad, visibility_filter)
 
                 if stage == "coarse":
@@ -317,17 +326,18 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 else:    
                     opacity_threshold = opt.opacity_threshold_fine_init - iteration*(opt.opacity_threshold_fine_init - opt.opacity_threshold_fine_after)/(opt.densify_until_iter)  
                     densify_threshold = opt.densify_grad_threshold_fine_init - iteration*(opt.densify_grad_threshold_fine_init - opt.densify_grad_threshold_after)/(opt.densify_until_iter )  
-                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<360000:
+                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<60000:#原来是360000
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    
+                    # print("iteration: ",iteration," densify")
+                    #610轮 38572->38826
                     gaussians.densify(densify_threshold, opacity_threshold, scene.cameras_extent, size_threshold, 5, 5, scene.model_path, iteration, stage)
-                if  iteration > opt.pruning_from_iter and iteration % opt.pruning_interval == 0 and gaussians.get_xyz.shape[0]>200000:
+                if  iteration > opt.pruning_from_iter and iteration % opt.pruning_interval == 0 and gaussians.get_xyz.shape[0]>40000:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
 
                     gaussians.prune(densify_threshold, opacity_threshold, scene.cameras_extent, size_threshold)
                     
                 # if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 :
-                if iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<360000 and opt.add_point:
+                if iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<60000 and opt.add_point:#原来是360000
                     gaussians.grow(5,5,scene.model_path,iteration,stage)
                     # torch.cuda.empty_cache()
                 if iteration % opt.opacity_reset_interval == 0:
@@ -377,9 +387,10 @@ def prepare_output_and_logger(expname):    #建立了output的文件夹，存储
         cfg_log_f.write(str(Namespace(**vars(args))))
 
     if args.wandb:
-        wandb.init(project="4DGaussians", 
+        wandb.init(project="4DGS_ZJU", 
                     name=expname,
                     config=vars(args),
+                    notes=" ",
                     dir=args.model_path)
     # Create Tensorboard writer
     tb_writer = None
@@ -405,6 +416,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(10, 5000, 299)]})
 
         for config in validation_configs:
+            if config["name"] == "train":
+                continue
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 psnr_test = 0.0
@@ -429,13 +442,13 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 psnr_test /= len(config['cameras'])
                 l1_test /= len(config['cameras'])          
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
-
-                if wandb.run is not None:
-                    wandb.log({
-                        f"{stage}/_l1_{config['name']}": l1_test,
-                        f"{stage}/_psnr_{config['name']}": psnr_test,
-                        "iteration": iteration
-                        })
+                if config['name'] == "test":
+                    if wandb.run is not None:
+                        wandb.log({
+                            f"{stage}/_l1_{config['name']}": l1_test,
+                            f"{stage}/_psnr_{config['name']}": psnr_test,
+                            "iteration": iteration
+                            })
                 # print("sh feature",scene.gaussians.get_features.shape)
                 # if tb_writer:
                 #     tb_writer.add_scalar(stage + "/"+config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
@@ -464,8 +477,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[ i for i in range(1000, 60000, 250) ])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[ 100, 20000, 30_000, 45000, 60000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[ i for i in range(99, 20000, 100) ])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 14_000, 20_000, 30_000, 45000, 60000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
