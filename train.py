@@ -16,6 +16,10 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 
+
+from torchvision.utils import save_image
+import os
+
 import numpy as np
 import random
 import os, sys
@@ -194,14 +198,18 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         for viewpoint_cam in viewpoint_cams:
             render_pkg = render(viewpoint_cam, gaussians, pipe, background, iteration,stage=stage,cam_type=scene.dataset_type)#这里是整个光栅化的过程，根据此相机视角生成图像
             # print("render_pkg['render_image'].shape:",render_pkg["render_image"].shape,"rgb_medium.shape:",render_pkg["rgb_medium"].shape)
-            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+            gaussian_image, medium_image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render_image"], render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+            image = gaussian_image + medium_image
             images.append(image.unsqueeze(0))
             if scene.dataset_type!="PanopticSports":
                 gt_image = viewpoint_cam.original_image.cuda()
+                depth_image = viewpoint_cam.depth.cuda()
+                print("adsdad")
             else:
                 gt_image  = viewpoint_cam['image'].cuda()
-            
-
+            # save_image(gt_image, "./test/gt.png")已测试深度图和真实图匹配
+            # save_image(depth_image, "./test/de.png")
+            # assert False
             gt_images.append(gt_image.unsqueeze(0))
             radii_list.append(radii.unsqueeze(0))
             visibility_filter_list.append(visibility_filter.unsqueeze(0))

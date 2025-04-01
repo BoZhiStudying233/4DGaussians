@@ -555,6 +555,7 @@ def readPanopticmeta(datadir, json_path):
         for focal, w2c, fn, cam in zip(focals, w2cs, fns, cam_ids):
             image_path = os.path.join(datadir,"ims")
             image_name=fn
+
             image = Image.open(os.path.join(datadir,"ims",fn))
             im_data = np.array(image.convert("RGBA"))
             im_data = PILtoTorch(im_data,None)[:3,:,:]
