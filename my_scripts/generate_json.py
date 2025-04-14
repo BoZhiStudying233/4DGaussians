@@ -156,6 +156,7 @@ if __name__ == "__main__":
     
     output_dir = args.cameras_file_path.replace('cameras.txt', 'camera')
     output_dir = output_dir.replace('/Sparse/0', '')
+    # output_dir = '/home/dzb/4DGaussians_ori/data/TEST_out/turtle'
     print(f"输出路径: {output_dir}")
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

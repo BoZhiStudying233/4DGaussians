@@ -80,8 +80,10 @@ class GaussianModel:
         self.sigma_activation = nn.Softplus()
         self.medium_density_bias= 0
 
+
+        # print("self.direction_encoding.get_out_dim():",self.direction_encoding.get_out_dim())
         self.medium_mlp = MLP(
-            in_dim=self.direction_encoding.get_out_dim(),#考虑时间维度的话，这里需要加上1
+            in_dim=self.direction_encoding.get_out_dim() + 1,#考虑时间维度，这里需要加上1
             num_layers= 2,
             layer_width= 128,
             out_dim=9,
@@ -217,7 +219,6 @@ class GaussianModel:
             #添加MLP参数
             {'params': self.medium_mlp.parameters(), 'lr': training_args.medium_MLP_lr, "name": "medium_mlp"}
 
-            
         ]
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)

@@ -114,7 +114,7 @@ class OptimizationParams(ParamGroup):
         self.iterations = 30_000
         self.coarse_iterations = 3000
         self.position_lr_init = 0.00016#0.00016
-        self.position_lr_final = 0.0000016#0.0000016
+        self.position_lr_final = 5e-5#0.0000016
         self.position_lr_delay_mult = 0.01#0.01
         self.position_lr_max_steps = 20_000
         self.deformation_lr_init = 0.00016#0.00016
@@ -136,17 +136,17 @@ class OptimizationParams(ParamGroup):
         self.weight_decay_iteration = 5000
         self.opacity_reset_interval = 3000
         self.densification_interval = 100
-        self.densify_from_iter = 500
+        self.densify_from_iter = 500#500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold_coarse = 0.000001#0.0002
         self.densify_grad_threshold_fine_init = 0.000001
         self.densify_grad_threshold_after = 0.00002#0.0002
-        self.pruning_from_iter = 500
+        self.pruning_from_iter = 10000#500
         self.pruning_interval = 100
-        self.opacity_threshold_coarse = 0.005
-        self.opacity_threshold_fine_init = 0.005
-        self.opacity_threshold_fine_after = 0.005
-        self.batch_size=1
+        self.opacity_threshold_coarse = 0.0005#0.005
+        self.opacity_threshold_fine_init = 0.0005#0.005
+        self.opacity_threshold_fine_after = 0.0005#0.005
+        self.batch_size=2
         self.add_point=False
         super().__init__(parser, "Optimization Parameters")
 

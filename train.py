@@ -9,11 +9,13 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 import wandb
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+
+from PIL import Image
 
 
 import numpy as np
@@ -168,7 +170,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         else:
             idx = 0
             viewpoint_cams = []
-
+            
             while idx < batch_size :    
                     
                 viewpoint_cam = viewpoint_stack.pop(randint(0,len(viewpoint_stack)-1))#hypernerf,对于viewpoint_stack = [i for i in train_cams],此处是在所有viewpoint_stack中随机选择一个
@@ -201,7 +203,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             else:
                 gt_image  = viewpoint_cam['image'].cuda()
             
-
+            
             gt_images.append(gt_image.unsqueeze(0))
             radii_list.append(radii.unsqueeze(0))
             visibility_filter_list.append(visibility_filter.unsqueeze(0))
@@ -219,14 +221,27 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # norm
         
 
-        loss = Ll1
+
+
+        recon_loss = (((image_tensor - gt_image_tensor) / (image_tensor.detach() + 1e-3)) ** 2).mean()
+        simloss = 1 - ssim((gt_image_tensor / (image_tensor.detach() + 1e-3)), 
+                                (image_tensor / (image_tensor.detach() + 1e-3)))
+
+        loss = (1 - 0.2) * recon_loss + 0.2 * simloss
+        
+        # loss = Ll1
         if stage == "fine" and hyper.time_smoothness_weight != 0:
             # tv_loss = 0
             tv_loss = gaussians.compute_regulation(hyper.time_smoothness_weight, hyper.l1_time_planes, hyper.plane_tv_weight)
             loss += tv_loss
-        if opt.lambda_dssim != 0:
-            ssim_loss = ssim(image_tensor,gt_image_tensor)
-            loss += opt.lambda_dssim * (1.0-ssim_loss)
+        
+        # if opt.lambda_dssim != 0:
+        #     ssim_loss = ssim(image_tensor,gt_image_tensor)
+        #     loss += opt.lambda_dssim * (1.0-ssim_loss)
+
+
+
+        
         # if opt.lambda_lpips !=0:
         #     lpipsloss = lpips_loss(image_tensor,gt_image_tensor,lpips_model)
         #     loss += opt.lambda_lpips * lpipsloss
@@ -238,6 +253,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             wandb.log({
                 f"{stage}/train_loss": loss.item(),
                 f"{stage}/train_psnr": psnr_.item(),
+                f"{stage}/train_ssim": ssim(image_tensor,gt_image_tensor),
                 "iteration": iteration
             })
         # print("iteration:",iteration)
@@ -263,6 +279,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
         if torch.isnan(loss).any():
             print("loss is nan,end training, reexecv program now.")
+            assert False
             os.execv(sys.executable, [sys.executable] + sys.argv)
         viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)
         for idx in range(0, len(viewspace_point_tensor_list)):
@@ -319,6 +336,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 # Keep track of max radii in image-space for pruning
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])#更新为当前半径 radii 和原最大半径中的较大值
                 gaussians.add_densification_stats(viewspace_point_tensor_grad, visibility_filter)
+                
+                
+                # grads = xys_grad_abs.detach().norm(dim=-1)
 
                 if stage == "coarse":
                     opacity_threshold = opt.opacity_threshold_coarse
@@ -326,7 +346,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 else:    
                     opacity_threshold = opt.opacity_threshold_fine_init - iteration*(opt.opacity_threshold_fine_init - opt.opacity_threshold_fine_after)/(opt.densify_until_iter)  
                     densify_threshold = opt.densify_grad_threshold_fine_init - iteration*(opt.densify_grad_threshold_fine_init - opt.densify_grad_threshold_after)/(opt.densify_until_iter )  
-                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<60000:#原来是360000
+                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<100000:#原来是360000
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     # print("iteration: ",iteration," densify")
                     #610轮 38572->38826
@@ -421,6 +441,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 psnr_test = 0.0
+                ssim_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
                     result = renderFunc(viewpoint, scene.gaussians,stage=stage, cam_type=dataset_type, *renderArgs)
                     image = torch.clamp(result["render_image"] + result["rgb_medium"], 0.0, 1.0)
@@ -439,14 +460,30 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     # mask=viewpoint.mask
                     
                     psnr_test += psnr(image, gt_image, mask=None).mean().double()
+                    ssim_test += ssim(image, gt_image).mean().double()
+                    # #保存图片
+                    # image = image.cpu().numpy()
+                    # gt_image = gt_image.cpu().numpy()
+                    # image = (image * 255).astype(np.uint8)
+                    # gt_image = (gt_image * 255).astype(np.uint8)
+                    # image = image.transpose(1, 2, 0)
+                    # gt_image = gt_image.transpose(1, 2, 0)
+                    # 使用Pillow保存图片
+                    # Image.fromarray(image).save(os.path.join(args.model_path, f"test_view_{viewpoint.image_name}_iteration_{iteration}.png"))
+                    # Image.fromarray(gt_image).save(os.path.join(args.model_path, f"test_view_{viewpoint.image_name}_iteration_{iteration}_gt.png"))
                 psnr_test /= len(config['cameras'])
-                l1_test /= len(config['cameras'])          
+                ssim_test /= len(config['cameras'])
+                # print("ssim_test:",ssim_test)
+                # assert False
+                l1_test /= len(config['cameras'])
+
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
                 if config['name'] == "test":
                     if wandb.run is not None:
                         wandb.log({
                             f"{stage}/_l1_{config['name']}": l1_test,
                             f"{stage}/_psnr_{config['name']}": psnr_test,
+                            f"{stage}/_ssim_{config['name']}": ssim_test,
                             "iteration": iteration
                             })
                 # print("sh feature",scene.gaussians.get_features.shape)

@@ -92,15 +92,28 @@ class Load_hyper_data(Dataset):
             self.all_cam_params.append(camera)
         self.all_img_origin = self.all_img
         self.all_depth = [f'{datadir}/depth/{int(1/ratio)}x/{i}.npy' for i in self.all_img]
+        
+        rgb_folder = f'{datadir}/rgb/{int(1/ratio)}x/'
+        files = os.listdir(rgb_folder)
+        for file in files:
+            if file.endswith('.png'):
+                pic_type = 'png'
+                break
+            elif file.endswith('.jpg'):
+                pic_type = 'jpg'
+                break
 
-        self.all_img = [f'{datadir}/rgb/{int(1/ratio)}x/{i}.png' for i in self.all_img]#根据缩放比例读入相应的图片   //修改图片类型
+
+
+            
+        self.all_img = [f'{datadir}/rgb/{int(1/ratio)}x/{i}.{pic_type}' for i in self.all_img]#根据缩放比例读入相应的图片   //修改图片类型
 
         self.h, self.w = self.all_cam_params[0].image_shape
         self.map = {}
         self.image_one = Image.open(self.all_img[0])
         self.image_one_torch = PILtoTorch(self.image_one,None).to(torch.float32)
         if os.path.exists(os.path.join(datadir,"covisible")):
-            self.image_mask = [f'{datadir}/covisible/{int(2)}x/val/{i}.png' for i in self.all_img_origin]
+            self.image_mask = [f'{datadir}/covisible/{int(2)}x/val/{i}.{pic_type}' for i in self.all_img_origin]
         else:
             self.image_mask = None
         
@@ -139,6 +152,7 @@ class Load_hyper_data(Dataset):
         time = self.video_time[idx]
         R = camera.orientation.T
         T = - camera.position @ R
+
         FovY = focal2fov(camera.focal_length, self.h)
         FovX = focal2fov(camera.focal_length, self.w)
         image_path = "/".join(self.all_img[idx].split("/")[:-1])
@@ -190,17 +204,28 @@ def format_hyper_data(data_class, split):
     # dataset.mode = split
     cam_infos = []
     for uid, index in tqdm(enumerate(data_idx)):
+        
+
         camera = data_class.all_cam_params[index]
         # image = Image.open(data_class.all_img[index])
         # image = PILtoTorch(image,None)
         time = data_class.all_time[index]
+        if index == 8:
+            print("camera.orientation:",camera.orientation)
+            print("camera.position:", camera.position)
         R = camera.orientation.T
         T = - camera.position @ R
+        if index == 8:
+            print("R:", R)
+            print("T:", T)
+            # assert False
+
         FovY = focal2fov(camera.focal_length, data_class.h)
         FovX = focal2fov(camera.focal_length, data_class.w)
         image_path = "/".join(data_class.all_img[index].split("/")[:-1])
         image_name = data_class.all_img[index].split("/")[-1]
-        
+
+
         if data_class.image_mask is not None and data_class.split == "test":
             mask = Image.open(data_class.image_mask[index])
             mask = PILtoTorch(mask,None)

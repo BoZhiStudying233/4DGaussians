@@ -12,6 +12,9 @@ from typing import Tuple
 import matplotlib.pyplot as plt
 import torch
 
+import os
+import json
+
 from gaussian_renderer.project_gaussians import project_gaussians
 from gaussian_renderer.sh import spherical_harmonics
 from gaussian_renderer.rasterize import rasterize_gaussians
@@ -23,6 +26,45 @@ import math
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from time import time as get_time
+
+def save_camera_params_to_json(iteration, R, T, json_path="camera_params.json"):
+    """
+    将相机参数保存到JSON文件，并检查是否已存在该iteration的数据
+    """
+    # 准备要保存的数据
+    new_data = {
+        "iteration": iteration,
+        "R": R.cpu().numpy().tolist() if torch.is_tensor(R) else R.tolist(),
+        "T": T.cpu().numpy().tolist() if torch.is_tensor(T) else T.tolist()
+    }
+    
+    # 检查文件是否存在
+    existing_data = []
+    if os.path.exists(json_path):
+        with open(json_path, 'r') as f:
+            try:
+                existing_data = json.load(f)
+                if not isinstance(existing_data, list):
+                    existing_data = []
+            except json.JSONDecodeError:
+                existing_data = []
+    
+    # 检查是否已存在该iteration的记录
+    iteration_exists = any(item.get('iteration') == iteration for item in existing_data)
+    
+    if not iteration_exists:
+        # 添加新数据
+        existing_data.append(new_data)
+        
+        # 写入文件
+        with open(json_path, 'w') as f:
+            json.dump(existing_data, f, indent=4)
+        
+        print(f"已保存iteration {iteration}的相机参数到{json_path}")
+    else:
+        print(f"iteration {iteration}的相机参数已存在，跳过保存")
+
+
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, iterations = None, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None):
     """
     Render the scene. 
@@ -63,10 +105,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         # raster_settings = viewpoint_camera['camera']#viewpoint_camera是一个复杂的量，好像与scene这个类有关。里面包含了batch_size个camera，每个camera都有自己的属性，
         time=torch.tensor(viewpoint_camera['time']).to(means3D.device).repeat(means3D.shape[0],1)
         
-    #好好检查R、T和watersplatting的对应!!!
+
 
     R = torch.from_numpy(viewpoint_camera.R).float().cuda()    #旋转矩阵，从世界坐标系转到相机坐标系
     T = torch.from_numpy(viewpoint_camera.T).float().cuda()    #平移矩阵，从世界坐标系转到相机坐标系
+
+        # print("iterations:", iterations)
+
+    if iterations == 9 or iterations == 19 or iterations == 29 or iterations == 39 or iterations == 49 or iterations == 59 or iterations == 69 or iterations == 79 or iterations == 89 or iterations == 99:
+        save_camera_params_to_json(iterations, R, T)
 
     # S = torch.diag(torch.tensor([1, -1, -1], device=R.device, dtype=R.dtype))  # 3x3 缩放矩阵    
     # R = S @ R
@@ -88,11 +135,21 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     directions = directions @ R.T       #也就是将方向向量转换到世界坐标系下
     #colmap出来的R是world2camera，因此需要将其转换为camera2world。但我认为此处应当右乘。
 
+    # print("directions.shape:",directions.shape)
     directions_flat = directions.view(-1, 3)
+    # print("directions_flat.shape:",directions_flat.shape)
     directions_encoded = pc.direction_encoding(directions_flat)
+    # print("time:",time[0][0])
+    # print("directions_encoded.shape:",directions_encoded.shape)
     outputs_shape = directions.shape[:-1]
 
-    medium_base_out = pc.medium_mlp(directions_encoded)
+    time_scalar = time[0][0].expand(directions_encoded.shape[0], 1)
+    # print("time_scalar.shape:",time_scalar.shape)
+    directions_encoded_time = torch.cat([directions_encoded, time_scalar], dim=-1)    
+    # print("directions_encoded_time:",directions_encoded_time)
+
+
+    medium_base_out = pc.medium_mlp(directions_encoded_time)
  
     # different activations for different outputs
     medium_rgb = (
@@ -110,9 +167,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         .view(*outputs_shape, -1)
         .to(directions)
     )
-    medium_bs = medium_bs/100
+    medium_bs = medium_bs#高斯的遮挡对介质渲染图的削减情况，若值大则削减小。
     medium_rgb = medium_rgb
-    medium_attn = medium_attn/100#500
+    medium_attn = medium_attn
     # pc.print_MLP_params()
 
 
@@ -189,7 +246,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     viewmat = torch.eye(4, device=R.device, dtype=R.dtype)
     viewmat[:3, :3] = R.T  # 旋转部分
+    T = -T @ R.T
     viewmat[:3, 3] = T   # 平移部分
+
+
 
     BLOCK_WIDTH = 16 
 
@@ -316,12 +376,14 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     rendered_image = rendered_image.permute(2,0,1)
     rgb_medium = rgb_medium.permute(2,0,1)
+    rgb_clear = rgb_clear.permute(2,0,1)
     return {"render_image": rendered_image,
             "rgb_medium": rgb_medium,
             "viewspace_points": xys_grad_abs,
             "visibility_filter" : radii > 0,#visibility_filter用于过滤掉被视锥体裁剪掉的高斯点。看不见的点就不会参与后续的梯度更新。
             "radii": radii,#radii用于进行高斯密度的更新。
-            "depth":depth_im}
+            "depth":depth_im,
+            "rgb_clear":rgb_clear}
 
 
 
