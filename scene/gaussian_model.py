@@ -48,7 +48,7 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int, args):
+    def __init__(self, sh_degree : int, args, model_path = None):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -66,14 +66,14 @@ class GaussianModel:
         self.spatial_lr_scale = 0
         self._deformation_table = torch.empty(0)
 
-        self.medium_mlp = None  # 用于计算密度场的MLP,先显式声明占位
+        self.medium_mlp = None  # 用于计算介质场的MLP,先显式声明占位
 
 
 
         self.setup_functions()
-        self.construct_medium_net()#定义MLP网络结构
+        self.construct_medium_net(model_path)#定义MLP网络结构
 
-    def construct_medium_net(self):
+    def construct_medium_net(self, model_path=None):
 
         self.direction_encoding = SHEncoding(levels=4)
         self.colour_activation = nn.Sigmoid()
@@ -94,6 +94,37 @@ class GaussianModel:
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.medium_mlp = self.medium_mlp.to(device)
+        if model_path != None:#导入mlp参数
+        # print("args:")
+        # hyperparam_dict = vars(args)
+        # for key, value in hyperparam_dict.items():
+        #     print(f"{key}: {value}")
+        
+            point_cloud_path = os.path.join(model_path, "point_cloud")
+            if os.path.exists(point_cloud_path):
+                iteration_folders = [f for f in os.listdir(point_cloud_path) if f.startswith("iteration_")]
+                if iteration_folders:
+                    iteration_numbers = [int(f.split("_")[-1]) for f in iteration_folders]
+                    last_iteration = max(iteration_numbers)
+                    load_path = os.path.join(model_path, "point_cloud", f"iteration_{last_iteration}", "medium_mlp.pth")
+                    try:
+                        state_dict = torch.load(load_path)
+                        self.medium_mlp.load_state_dict(state_dict)
+                        print(f"Successfully loaded medium_mlp parameters from {load_path}")
+                    except Exception as e:
+                        print(f"Failed to load medium_mlp parameters: {e}")
+                        assert False
+                else:
+                    print("No iteration folders found in point_cloud directory.")
+            else:
+                print(f"point_cloud directory not found at {point_cloud_path}.")
+            try:
+                state_dict = torch.load(load_path)
+                self.medium_mlp.load_state_dict(state_dict)
+                print(f"Successfully loaded medium_mlp parameters from {load_path}")
+            except Exception as e:
+                print(f"Failed to load medium_mlp parameters: {e}")
+                assert False
 
     def print_MLP_params(self):
         for name, param in self.medium_mlp.named_parameters():
@@ -217,7 +248,7 @@ class GaussianModel:
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
             #添加MLP参数
-            {'params': self.medium_mlp.parameters(), 'lr': training_args.medium_MLP_lr, "name": "medium_mlp"}
+            {'params': self.medium_mlp.parameters(), 'lr': training_args.medium_MLP_lr_init*self.spatial_lr_scale, "name": "medium_mlp"}
 
         ]
 
@@ -233,6 +264,10 @@ class GaussianModel:
         self.grid_scheduler_args = get_expon_lr_func(lr_init=training_args.grid_lr_init*self.spatial_lr_scale,
                                                     lr_final=training_args.grid_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.deformation_lr_delay_mult,
+                                                    max_steps=training_args.position_lr_max_steps) 
+        self.medium_scheduler_args = get_expon_lr_func(lr_init=training_args.medium_MLP_lr_init*self.spatial_lr_scale,
+                                                    lr_final=training_args.medium_MLP_lr_final*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.medium_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps)    
 
     def update_learning_rate(self, iteration):
@@ -250,7 +285,9 @@ class GaussianModel:
                 lr = self.deformation_scheduler_args(iteration)
                 param_group['lr'] = lr
                 # return lr
-
+            elif param_group["name"] == "medium_mlp":
+                lr = self.medium_scheduler_args(iteration)
+                param_group['lr'] = lr
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
@@ -287,6 +324,18 @@ class GaussianModel:
         torch.save(self._deformation.state_dict(),os.path.join(path, "deformation.pth"))
         torch.save(self._deformation_table,os.path.join(path, "deformation_table.pth"))
         torch.save(self._deformation_accum,os.path.join(path, "deformation_accum.pth"))
+    def save_medium_mlp(self, path):
+        """
+        保存 medium_mlp 网络的参数到指定路径。
+
+        :param path: 保存参数文件的路径，通常是一个 .pth 或 .pt 后缀的文件
+        """
+        try:
+            # 保存 medium_mlp 的状态字典到指定路径
+            torch.save(self.medium_mlp.state_dict(), os.path.join(path, "medium_mlp.pth"))
+            print(f"Successfully saved medium_mlp parameters to {path}")
+        except Exception as e:
+            print(f"Failed to save medium_mlp parameters: {e}")
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
 
@@ -568,7 +617,7 @@ class GaussianModel:
 
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
-        self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor[update_filter,:2], dim=-1, keepdim=True)#grad的张量的 模值的 累计，grad的张量shape为[N,3]
+        self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor[update_filter,:2], dim=-1, keepdim=True)#grad的张量的 模值的 累计，grad的张量shape为[N,2]
         self.denom[update_filter] += 1
     @torch.no_grad()
     def update_deformation_table(self,threshold):

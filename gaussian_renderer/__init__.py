@@ -381,6 +381,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "rgb_medium": rgb_medium,
             "viewspace_points": xys_grad_abs,
             "visibility_filter" : radii > 0,#visibility_filter用于过滤掉被视锥体裁剪掉的高斯点。看不见的点就不会参与后续的梯度更新。
+            "depth_image": depth_im,
             "radii": radii,#radii用于进行高斯密度的更新。
             "depth":depth_im,
             "rgb_clear":rgb_clear}

@@ -9,7 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import wandb
 import matplotlib.pyplot as plt
@@ -50,7 +50,7 @@ except ImportError:
     TENSORBOARD_FOUND = False
 def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations, 
                          checkpoint_iterations, checkpoint, debug_from,
-                         gaussians, scene, stage, tb_writer, train_iter,timer):
+                         gaussians, scene, stage, tb_writer, train_iter,timer, is_depth = False):
     first_iter = 0
 
     gaussians.training_setup(opt)#初始化了很多参数,包括规划学习率等等
@@ -190,14 +190,18 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             pipe.debug = True
         images = []
         gt_images = []
+        depth_images = []
         radii_list = []
         visibility_filter_list = []
         viewspace_point_tensor_list = []
         for viewpoint_cam in viewpoint_cams:
             render_pkg = render(viewpoint_cam, gaussians, pipe, background, iteration,stage=stage,cam_type=scene.dataset_type)#这里是整个光栅化的过程，根据此相机视角生成图像
             # print("render_pkg['render_image'].shape:",render_pkg["render_image"].shape,"rgb_medium.shape:",render_pkg["rgb_medium"].shape)
-            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+            image, viewspace_point_tensor, visibility_filter, radii, depth_image = render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"], render_pkg["depth_image"]
             images.append(image.unsqueeze(0))
+            depth_images.append(depth_image.unsqueeze(0))
+
+
             if scene.dataset_type!="PanopticSports":
                 gt_image = viewpoint_cam.original_image.cuda()
             else:
@@ -338,7 +342,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 gaussians.add_densification_stats(viewspace_point_tensor_grad, visibility_filter)
                 
                 
-                # grads = xys_grad_abs.detach().norm(dim=-1)
+                # grads = viewspace_point_tensor_grad.detach().norm(dim=-1)
 
                 if stage == "coarse":
                     opacity_threshold = opt.opacity_threshold_coarse
@@ -346,7 +350,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 else:    
                     opacity_threshold = opt.opacity_threshold_fine_init - iteration*(opt.opacity_threshold_fine_init - opt.opacity_threshold_fine_after)/(opt.densify_until_iter)  
                     densify_threshold = opt.densify_grad_threshold_fine_init - iteration*(opt.densify_grad_threshold_fine_init - opt.densify_grad_threshold_after)/(opt.densify_until_iter )  
-                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<100000:#原来是360000
+                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<180000:#原来是360000
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     # print("iteration: ",iteration," densify")
                     #610轮 38572->38826
@@ -374,8 +378,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" +f"_{stage}_" + str(iteration) + ".pth")
-def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, expname):
+def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, expname, is_depth):#is_depth表示是否启用深度图约束
     # first_iter = 0
+    
     tb_writer = prepare_output_and_logger(expname)
     gaussians = GaussianModel(dataset.sh_degree, hyper) #建立了gaussian model，里面包含了xyz，rgb，不透明度等信息
     dataset.model_path = args.model_path
@@ -386,10 +391,10 @@ def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, c
 
     scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations,
                              checkpoint_iterations, checkpoint, debug_from,
-                             gaussians, scene, "coarse", tb_writer, opt.coarse_iterations,timer)
+                             gaussians, scene, "coarse", tb_writer, opt.coarse_iterations,timer, is_depth)
     scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations,
                          checkpoint_iterations, checkpoint, debug_from,
-                         gaussians, scene, "fine", tb_writer, opt.iterations,timer)
+                         gaussians, scene, "fine", tb_writer, opt.iterations,timer, is_depth)
 
 def prepare_output_and_logger(expname):    #建立了output的文件夹，存储一些cfg，如本次训练的参数等等。
     if not args.model_path:
@@ -515,17 +520,20 @@ if __name__ == "__main__":
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[ i for i in range(99, 20000, 100) ])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 14_000, 20_000, 30_000, 45000, 60000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 500, 3000, 7000, 14_000, 20_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--expname", type=str, default = "")
     parser.add_argument("--configs", type=str, default = "")
     parser.add_argument("--wandb", action="store_true", default=False)
+    parser.add_argument("--depth", action="store_true", default=False)
 
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
+    print("args.depth:", args.depth)
+    print("args.wandb:", args.wandb)
     if args.configs:
         import mmcv
         from utils.params_utils import merge_hparams
@@ -539,7 +547,7 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, args.expname)
+    training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, args.expname, args.depth)
     #数据集的地址  ，  模型的参数， 优化器的参数  ，  渲染和优化过程相关的参数  
     # All done
     print("\nTraining complete.")

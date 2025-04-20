@@ -111,8 +111,8 @@ class OptimizationParams(ParamGroup):
         self.dataloader=False
         self.zerostamp_init=False
         self.custom_sampler=None
-        self.iterations = 30_000
-        self.coarse_iterations = 3000
+        self.iterations = 30_000#似乎no use
+        self.coarse_iterations = 3000#似乎no use
         self.position_lr_init = 0.00016#0.00016
         self.position_lr_final = 5e-5#0.0000016
         self.position_lr_delay_mult = 0.01#0.01
@@ -123,10 +123,14 @@ class OptimizationParams(ParamGroup):
         self.grid_lr_init = 0.0016#0.0016
         self.grid_lr_final = 0.00016#0.00016
 
-        self.medium_MLP_lr = 0.002
+        self.medium_MLP_lr_init = 1e-3
+        self.medium_MLP_lr_final = 1.5e-4
+        self.medium_lr_delay_mult = 0.01
+
+        
         self.feature_lr = 0.0025#0.0025
-        self.opacity_lr = 0.1#0.05
-        self.scaling_lr = 0.0005#0.005
+        self.opacity_lr = 0.05#0.05
+        self.scaling_lr = 0.005#0.005
         self.rotation_lr = 0.001#0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0
@@ -138,10 +142,10 @@ class OptimizationParams(ParamGroup):
         self.densification_interval = 100
         self.densify_from_iter = 500#500
         self.densify_until_iter = 15_000
-        self.densify_grad_threshold_coarse = 0.000001#0.0002
-        self.densify_grad_threshold_fine_init = 0.000001
-        self.densify_grad_threshold_after = 0.00002#0.0002
-        self.pruning_from_iter = 10000#500
+        self.densify_grad_threshold_coarse = 0.00001#0.0002
+        self.densify_grad_threshold_fine_init = 0.00001
+        self.densify_grad_threshold_after = 0.0002#0.0002
+        self.pruning_from_iter = 500#500
         self.pruning_interval = 100
         self.opacity_threshold_coarse = 0.0005#0.005
         self.opacity_threshold_fine_init = 0.0005#0.005
