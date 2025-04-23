@@ -35,19 +35,41 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
             gt_np = viewpoint['image'].permute(1,2,0).cpu().numpy()
         else:
             gt_np = viewpoint.original_image.permute(1,2,0).cpu().numpy()
+                
+            gt_depth = viewpoint.depth.permute(1,2,0).cpu().numpy()  # 先转到CPU
+            gt_depth_normalized = (gt_depth - gt_depth.min()) / (gt_depth.max() - gt_depth.min())
+            # 直接将最后一维的数据复制到3个通道
+            gt_depth_np = np.repeat(gt_depth_normalized, 3, axis=2)  # 从(1500,2400,1)变为(1500,2400,3)
+            
+            
+            # 检查形状并打印
+            # print("gt_depth shape:", gt_depth.shape)
+            # print("gt_depth_np shape:", gt_depth_np.shape)
+            
+            # 保存归一化后的深度图
+            # gt_depth_image = Image.fromarray((gt_depth_np * 255).astype('uint8'))
+
+
         image_np = image.permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
 
         render_np = render_pkg["render_image"].permute(1,2,0).cpu().numpy()
         rgb_medium_np = render_pkg["rgb_medium"].permute(1,2,0).cpu().numpy()
 
         rgb_clear_np = rgb_clear.permute(1,2,0).cpu().numpy()
+        
+        
+        depth_np = depth.cpu().numpy()
+        # 保存 depth 为灰度图并转换为RGB格式
+        depth_normalized = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())  # 归一化到 [0, 1]
+        depth_rgb = np.stack([depth_normalized] * 3, axis=-1)  # 将单通道复制为3通道
 
 
 
-        # depth_np = depth.permute(1, 2, 0).cpu().numpy()
-        # depth_np /= depth_np.max()
-        # depth_np = np.repeat(depth_np, 3, axis=2)
-        image_np = np.concatenate((gt_np, image_np, render_np, rgb_medium_np, rgb_clear_np), axis=1)
+        # print("gt_depth_np:",gt_depth_image.shape)
+        # print("depth_rgb:",depth_rgb.shape)
+        # 使用depth_rgb进行拼接
+        image_np = np.concatenate((gt_np, image_np, render_np, rgb_medium_np, rgb_clear_np, depth_rgb, gt_depth_np), axis=1)
+
         image_with_labels = Image.fromarray((np.clip(image_np,0,1) * 255).astype('uint8'))  
         draw1 = ImageDraw.Draw(image_with_labels)
         font = ImageFont.truetype('./utils/TIMES.TTF', size=40) 

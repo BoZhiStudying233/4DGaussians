@@ -150,6 +150,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
         gaussians.update_learning_rate(iteration)#根据迭代次数更新学习率
 
+
+
+
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
@@ -190,24 +193,43 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             pipe.debug = True
         images = []
         gt_images = []
-        depth_images = []
+        rgb_clear_images = []
+        gt_depth_images = []
         radii_list = []
         visibility_filter_list = []
         viewspace_point_tensor_list = []
+        gaussian_images = []
+
+
         for viewpoint_cam in viewpoint_cams:
             render_pkg = render(viewpoint_cam, gaussians, pipe, background, iteration,stage=stage,cam_type=scene.dataset_type)#这里是整个光栅化的过程，根据此相机视角生成图像
             # print("render_pkg['render_image'].shape:",render_pkg["render_image"].shape,"rgb_medium.shape:",render_pkg["rgb_medium"].shape)
-            image, viewspace_point_tensor, visibility_filter, radii, depth_image = render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"], render_pkg["depth_image"]
+            gaussian_image = render_pkg["render_image"]
+            image, viewspace_point_tensor, visibility_filter, radii, rgb_clear_img = render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"], render_pkg["rgb_clear"]
             images.append(image.unsqueeze(0))
-            depth_images.append(depth_image.unsqueeze(0))
+            
+            rgb_clear_images.append(rgb_clear_img.unsqueeze(0))
+            # 在GPU上将depth_image转换为RGB格式
+            # depth_normalized = (depth_image - depth_image.min()) / (depth_image.max() - depth_image.min())  # 在GPU上归一化
+            # depth_rgb = torch.stack([depth_normalized] * 3, dim=0)  # 在GPU上创建3通道
+            # print("depth_rgb:", depth_normalized.shape)
 
+            # depth_images.append(depth_normalized.unsqueeze(0))  # 存储RGB格式的深度图
+            # print("image:",image.shape)
 
             if scene.dataset_type!="PanopticSports":
                 gt_image = viewpoint_cam.original_image.cuda()
+                gt_depth_image = viewpoint_cam.depth.cuda()
+                # gt_depth_image_noramlized = (gt_depth_image - gt_depth_image.min()) / (gt_depth_image.max() - gt_depth_image.min())  # 在GPU上归一化
+                # gt_depth_image_rgb = torch.stack([gt_depth_image_noramlized] * 3, dim=0)  # 在GPU上创建3通道
+                # print("gt_depth_image_rgb:", gt_depth_image_noramlized.shape)
+
             else:
                 gt_image  = viewpoint_cam['image'].cuda()
             
-            
+
+            gaussian_images.append(gaussian_image.unsqueeze(0))
+            gt_depth_images.append(gt_depth_image.unsqueeze(0))
             gt_images.append(gt_image.unsqueeze(0))
             radii_list.append(radii.unsqueeze(0))
             visibility_filter_list.append(visibility_filter.unsqueeze(0))
@@ -217,21 +239,43 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         visibility_filter = torch.cat(visibility_filter_list).any(dim=0)
         image_tensor = torch.cat(images,0)
         gt_image_tensor = torch.cat(gt_images,0)
+
+        gt_depth_images_tensor = torch.cat(gt_depth_images,0)
+        # depth_images_tensor = torch.cat(depth_images,0)
+        # gaussian_images_tensor = torch.cat(gaussian_images,0)
+
+
+        rgb_clear_images_tensor = torch.cat(rgb_clear_images,0)
         # Loss
         # breakpoint() 
-        Ll1 = l1_loss(image_tensor, gt_image_tensor[:,:3,:,:])
+        # Ll1 = l1_loss(image_tensor, gt_image_tensor[:,:3,:,:])
 
         psnr_ = psnr(image_tensor, gt_image_tensor).mean().double()
         # norm
-        
+        if is_depth:
+            # 设置深度阈值
+            depth_threshold = 60
 
+            # 选取第一个通道用于比较
+            depth_channel = gt_depth_images_tensor[:, 0:1, :, :]
 
+            # 创建一个掩码，标记深度大于阈值的像素
+            depth_mask = (depth_channel < depth_threshold).expand_as(image_tensor)
 
+            # 创建与 image_tensor[depth_mask] 形状相同的纯黑图片
+            black_image = torch.zeros_like(rgb_clear_images_tensor[depth_mask])
+
+            # 计算高斯渲染与深度大的像素重合部分的额外损失
+            additional_loss = 10 * l1_loss(rgb_clear_images_tensor[depth_mask], black_image)  # 10是一个很大的惩罚系数，可根据实际情况调整
+
+        else:
+            additional_loss = 0
+        # print("Ll1:", Ll1)
         recon_loss = (((image_tensor - gt_image_tensor) / (image_tensor.detach() + 1e-3)) ** 2).mean()
         simloss = 1 - ssim((gt_image_tensor / (image_tensor.detach() + 1e-3)), 
                                 (image_tensor / (image_tensor.detach() + 1e-3)))
 
-        loss = (1 - 0.2) * recon_loss + 0.2 * simloss
+        loss = (1 - 0.2) * recon_loss + 0.2 * simloss + additional_loss
         
         # loss = Ll1
         if stage == "fine" and hyper.time_smoothness_weight != 0:
@@ -263,20 +307,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # print("iteration:",iteration)
         loss.backward()
 
-
-        # torch.cuda.empty_cache()
-        # 在loss.backward()后添加
-        # total_norm = 0
-        # for name, param in gaussians.named_parameters():
-        #     if param.grad is not None:
-        #         param_norm = param.grad.data.norm(2).item()
-        #         total_norm += param_norm ** 2
-        #         if torch.isnan(param.grad).any():
-        #             print(f"NaN gradient detected in {name}")
-        #         if param_norm > 1e5:  # 梯度值超过10^5即报警
-        #             print(f"Exploding gradient in {name}: {param_norm:.2e}")
-        # total_norm = total_norm ** 0.5
-        # print(f"Total gradient norm: {total_norm:.2e}")
+        
 
 
 
@@ -317,7 +348,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
             # Log and save
             timer.pause()
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, [pipe, background], stage, scene.dataset_type, psnr_)
+            training_report(tb_writer, iteration, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, [pipe, background], stage, scene.dataset_type, psnr_)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration, stage)
@@ -367,8 +398,24 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 if iteration % opt.opacity_reset_interval == 0:
                     print("reset opacity")
                     gaussians.reset_opacity()
-                    
-            
+
+
+            #梯度裁剪
+            max_norms = {
+                "xyz": 5.0,           # 位置参数较大梯度
+                "deformation": 1.0,   # 形变MLP参数较小梯度
+                "grid": 2.0,          # 网格参数中等梯度
+                "f_dc": 0.5,          # 颜色参数严格限制
+                "f_rest": 0.5,
+                "opacity": 0.1,       # 透明度参数需谨慎更新
+                "scaling": 1.0,
+                "rotation": 1.0,
+                "medium_mlp": 0.001     # MLP参数单独控制
+            }
+            for param_group in gaussians.optimizer.param_groups:
+                name = param_group["name"]
+                if name in max_norms:
+                    torch.nn.utils.clip_grad_norm_(param_group["params"], max_norm=max_norms[name])
 
             # Optimizer step
             if iteration < opt.iterations:
@@ -380,7 +427,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" +f"_{stage}_" + str(iteration) + ".pth")
 def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, expname, is_depth):#is_depth表示是否启用深度图约束
     # first_iter = 0
-    
+
     tb_writer = prepare_output_and_logger(expname)
     gaussians = GaussianModel(dataset.sh_degree, hyper) #建立了gaussian model，里面包含了xyz，rgb，不透明度等信息
     dataset.model_path = args.model_path
@@ -425,7 +472,7 @@ def prepare_output_and_logger(expname):    #建立了output的文件夹，存储
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, stage, dataset_type, psnr_):
+def training_report(tb_writer, iteration, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, stage, dataset_type, psnr_):
     # if tb_writer:
     #     tb_writer.add_scalar(f'{stage}/train_loss_patches/l1_loss', Ll1.item(), iteration)
     #     tb_writer.add_scalar(f'{stage}/train_loss_patchestotal_loss', loss.item(), iteration)
@@ -532,8 +579,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
-    print("args.depth:", args.depth)
-    print("args.wandb:", args.wandb)
+    # print("args.depth:", args.depth)
+    # print("args.wandb:", args.wandb)
     if args.configs:
         import mmcv
         from utils.params_utils import merge_hparams

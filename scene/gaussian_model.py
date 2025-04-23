@@ -13,6 +13,9 @@ import torch
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
 from torch import nn
+
+import wandb
+
 import os
 import open3d as o3d
 from utils.system_utils import mkdir_p
@@ -272,22 +275,36 @@ class GaussianModel:
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
+        if wandb.run is not None:  # 确保wandb已初始化
+            lr_dict = {}  # 用于存储所有参数组的学习率
         for param_group in self.optimizer.param_groups:
             if param_group["name"] == "xyz":
                 lr = self.xyz_scheduler_args(iteration)
                 param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["xyz_lr"] = lr
+
                 # return lr
             if  "grid" in param_group["name"]:
                 lr = self.grid_scheduler_args(iteration)
                 param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["grid_lr"] = lr
                 # return lr
             elif param_group["name"] == "deformation":
                 lr = self.deformation_scheduler_args(iteration)
                 param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["deformation_lr"] = lr
                 # return lr
             elif param_group["name"] == "medium_mlp":
                 lr = self.medium_scheduler_args(iteration)
                 param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["medium_mlp_lr"] = lr
+            if wandb.run is not None:
+                lr_dict["iteration"] = iteration
+                wandb.log(lr_dict)
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC

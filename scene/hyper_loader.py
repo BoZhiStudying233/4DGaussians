@@ -32,6 +32,8 @@ class CameraInfo(NamedTuple):
     height: int
     time : float
     mask: np.array
+    depth_image: np.array
+
 
 
 class Load_hyper_data(Dataset):
@@ -91,8 +93,9 @@ class Load_hyper_data(Dataset):
 
             self.all_cam_params.append(camera)
         self.all_img_origin = self.all_img
-        self.all_depth = [f'{datadir}/depth/{int(1/ratio)}x/{i}.npy' for i in self.all_img]
-        
+        # self.all_depth = [f'{datadir}/depth/{int(1/ratio)}x/{i}.npy' for i in self.all_img]
+        self.all_depth = [f'{datadir}/rgb/depth/{i}.png' for i in self.all_img]
+
         rgb_folder = f'{datadir}/rgb/{int(1/ratio)}x/'
         files = os.listdir(rgb_folder)
         for file in files:
@@ -167,10 +170,15 @@ class Load_hyper_data(Dataset):
             return self.map[idx]
         camera = self.all_cam_params[idx]
         image = Image.open(self.all_img[idx])
+        depth = Image.open(self.all_depth[idx])#读取深度图
+
         w = image.size[0]
         h = image.size[1]
         image = PILtoTorch(image,None)
         image = image.to(torch.float32)[:3,:,:]
+        depth = PILtoTorch(depth,None)
+        depth = depth.to(torch.float32)[0:1,:,:]
+
         time = self.all_time[idx]
         R = camera.orientation.T
         T = - camera.position @ R
@@ -189,7 +197,7 @@ class Load_hyper_data(Dataset):
 
         
         caminfo = CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=w, height=h, time=time, mask=mask
+                              image_path=image_path, image_name=image_name, width=w, height=h, time=time, mask=mask, depth_image=depth
                               )
         self.map[idx] = caminfo
         return caminfo  
@@ -237,7 +245,7 @@ def format_hyper_data(data_class, split):
             mask = None
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=None,
                               image_path=image_path, image_name=image_name, width=int(data_class.w), 
-                              height=int(data_class.h), time=time, mask=mask
+                              height=int(data_class.h), time=time, mask=mask, depth_image= None
                               )
         cam_infos.append(cam_info)
     return cam_infos

@@ -112,8 +112,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
         # print("iterations:", iterations)
 
-    if iterations == 9 or iterations == 19 or iterations == 29 or iterations == 39 or iterations == 49 or iterations == 59 or iterations == 69 or iterations == 79 or iterations == 89 or iterations == 99:
-        save_camera_params_to_json(iterations, R, T)
+    # if iterations == 9 or iterations == 19 or iterations == 29 or iterations == 39 or iterations == 49 or iterations == 59 or iterations == 69 or iterations == 79 or iterations == 89 or iterations == 99:
+    #     save_camera_params_to_json(iterations, R, T)
 
     # S = torch.diag(torch.tensor([1, -1, -1], device=R.device, dtype=R.dtype))  # 3x3 缩放矩阵    
     # R = S @ R
