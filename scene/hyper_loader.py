@@ -33,7 +33,7 @@ class CameraInfo(NamedTuple):
     time : float
     mask: np.array
     depth_image: np.array
-
+    next_image: np.array
 
 
 class Load_hyper_data(Dataset):
@@ -62,10 +62,23 @@ class Load_hyper_data(Dataset):
         self.val_id = dataset_json['val_ids']
         self.split = split
         if len(self.val_id) == 0:#如果测试集没东西，就自己划分测试集和训练集
-            self.i_train = np.array([i for i in np.arange(len(self.all_img)) if
-                            (i%4 == 0)])
-            self.i_test = self.i_train+2
-            self.i_test = self.i_test[:-1,]
+            # self.i_train = np.array([i for i in np.arange(len(self.all_img)) if
+            #                 (i%4 == 0)])
+            # self.i_test = self.i_train+2
+            # self.i_test = self.i_test[:-1,]
+
+            # 计算数据集的长度
+            dataset_size = len(self.all_img)
+            # 计算训练集的大小
+            train_size = int(dataset_size * 0.9)
+            # 生成 0 到 dataset_size - 1 的索引列表
+            indices = np.arange(dataset_size)
+            # 随机打乱索引顺序
+            np.random.shuffle(indices)
+            # 划分训练集和测试集的索引
+            self.i_train = indices[:train_size]
+            self.i_test = indices[train_size:]
+            
         else:
             self.train_id = dataset_json['train_ids']
             self.i_test = []
@@ -95,6 +108,9 @@ class Load_hyper_data(Dataset):
         self.all_img_origin = self.all_img
         # self.all_depth = [f'{datadir}/depth/{int(1/ratio)}x/{i}.npy' for i in self.all_img]
         self.all_depth = [f'{datadir}/rgb/depth/{i}.png' for i in self.all_img]
+
+    
+
 
         rgb_folder = f'{datadir}/rgb/{int(1/ratio)}x/'
         files = os.listdir(rgb_folder)
@@ -170,15 +186,24 @@ class Load_hyper_data(Dataset):
             return self.map[idx]
         camera = self.all_cam_params[idx]
         image = Image.open(self.all_img[idx])
-        depth = Image.open(self.all_depth[idx])#读取深度图
+    
+        next_image = Image.open(self.all_img[idx+1]) if idx+1 < len(self.all_img) else Image.open(self.all_img[idx-1])
+        next_image = PILtoTorch(next_image,None)
+        next_image = next_image.to(torch.float32)[:3,:,:]
 
+        try:
+            depth = Image.open(self.all_depth[idx])#读取深度图
+        except:
+            depth = None
         w = image.size[0]
         h = image.size[1]
         image = PILtoTorch(image,None)
         image = image.to(torch.float32)[:3,:,:]
-        depth = PILtoTorch(depth,None)
-        depth = depth.to(torch.float32)[0:1,:,:]
-
+        try:
+            depth = PILtoTorch(depth,None)
+            depth = depth.to(torch.float32)[0:1,:,:]
+        except:
+            depth = None
         time = self.all_time[idx]
         R = camera.orientation.T
         T = - camera.position @ R
@@ -197,7 +222,7 @@ class Load_hyper_data(Dataset):
 
         
         caminfo = CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=w, height=h, time=time, mask=mask, depth_image=depth
+                              image_path=image_path, image_name=image_name, width=w, height=h, time=time, mask=mask, depth_image=depth, next_image = next_image
                               )
         self.map[idx] = caminfo
         return caminfo  
@@ -223,9 +248,9 @@ def format_hyper_data(data_class, split):
             print("camera.position:", camera.position)
         R = camera.orientation.T
         T = - camera.position @ R
-        if index == 8:
-            print("R:", R)
-            print("T:", T)
+        # if index == 8:
+        #     print("R:", R)
+        #     print("T:", T)
             # assert False
 
         FovY = focal2fov(camera.focal_length, data_class.h)
@@ -245,7 +270,7 @@ def format_hyper_data(data_class, split):
             mask = None
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=None,
                               image_path=image_path, image_name=image_name, width=int(data_class.w), 
-                              height=int(data_class.h), time=time, mask=mask, depth_image= None
+                              height=int(data_class.h), time=time, mask=mask, depth_image= None, next_image = None
                               )
         cam_infos.append(cam_info)
     return cam_infos

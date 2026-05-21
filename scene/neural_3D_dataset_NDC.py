@@ -250,7 +250,7 @@ class Neural3D_NDC_Dataset(Dataset):
         self.white_bg = False
         self.ndc_ray = True
         self.depth_data = False
-
+        
         self.load_meta()
         print(f"meta data loaded, total image:{len(self)}")
 

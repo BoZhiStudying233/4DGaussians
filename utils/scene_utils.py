@@ -14,13 +14,13 @@ import copy
 @torch.no_grad()
 
 
-def render_training_image(scene, gaussians, viewpoints, render_func, pipe, background, stage, iteration, time_now, dataset_type):
-    def render(gaussians, viewpoint, path, iteration, scaling, cam_type):
+def render_training_image(scene, gaussians, viewpoints, render_func, pipe, background, stage, iteration, time_now, dataset_type, opt):
+    def render(gaussians, viewpoint, path, iteration, scaling, cam_type, opt):
         global last_iter
         # scaling_copy = gaussians._scaling
         # print("rendering2")
 
-        render_pkg = render_func(viewpoint, gaussians, pipe, background, iteration, stage=stage, cam_type=cam_type)
+        render_pkg = render_func(viewpoint, gaussians, pipe, background, iteration, stage=stage, cam_type=cam_type, opt=opt)
         label1 = f"stage:{stage},iter:{iteration}"
         times =  time_now/60
         if times < 1:
@@ -30,17 +30,20 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
         label2 = "time:%.2f" % times + end
         image = render_pkg["render_image"] + render_pkg["rgb_medium"]
         rgb_clear = render_pkg["rgb_clear"]
-        depth = render_pkg["depth"]
+        depth = render_pkg["depth_image"]
         if dataset_type == "PanopticSports":
             gt_np = viewpoint['image'].permute(1,2,0).cpu().numpy()
         else:
             gt_np = viewpoint.original_image.permute(1,2,0).cpu().numpy()
-                
-            gt_depth = viewpoint.depth.permute(1,2,0).cpu().numpy()  # 先转到CPU
-            gt_depth_normalized = (gt_depth - gt_depth.min()) / (gt_depth.max() - gt_depth.min())
-            # 直接将最后一维的数据复制到3个通道
-            gt_depth_np = np.repeat(gt_depth_normalized, 3, axis=2)  # 从(1500,2400,1)变为(1500,2400,3)
-            
+            try:   
+                gt_depth = viewpoint.depth.permute(1,2,0).cpu().numpy()  # 先转到CPU
+                gt_depth_normalized = (gt_depth - gt_depth.min()) / (gt_depth.max() - gt_depth.min())
+                # 直接将最后一维的数据复制到3个通道
+                gt_depth_np = np.repeat(gt_depth_normalized, 3, axis=2)  # 从(1500,2400,1)变为(1500,2400,3)
+
+                is_depth = True
+            except:
+                is_depth = False
             
             # 检查形状并打印
             # print("gt_depth shape:", gt_depth.shape)
@@ -57,19 +60,20 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
 
         rgb_clear_np = rgb_clear.permute(1,2,0).cpu().numpy()
         
-        
-        depth_np = depth.cpu().numpy()
-        # 保存 depth 为灰度图并转换为RGB格式
-        depth_normalized = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())  # 归一化到 [0, 1]
-        depth_rgb = np.stack([depth_normalized] * 3, axis=-1)  # 将单通道复制为3通道
+        if is_depth:
+            depth_np = depth.cpu().numpy()
+            # 保存 depth 为灰度图并转换为RGB格式
+            depth_normalized = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())  # 归一化到 [0, 1]
+            depth_rgb = np.stack([depth_normalized] * 3, axis=-1)  # 将单通道复制为3通道
 
 
 
-        # print("gt_depth_np:",gt_depth_image.shape)
-        # print("depth_rgb:",depth_rgb.shape)
-        # 使用depth_rgb进行拼接
-        image_np = np.concatenate((gt_np, image_np, render_np, rgb_medium_np, rgb_clear_np, depth_rgb, gt_depth_np), axis=1)
-
+            # print("gt_depth_np:",gt_depth_image.shape)
+            # print("depth_rgb:",depth_rgb.shape)
+            # 使用depth_rgb进行拼接
+            image_np = np.concatenate((gt_np, image_np, render_np, rgb_medium_np, rgb_clear_np, depth_rgb, gt_depth_np), axis=1)
+        else:
+            image_np = np.concatenate((gt_np, image_np, render_np, rgb_medium_np, rgb_clear_np), axis=1)
         image_with_labels = Image.fromarray((np.clip(image_np,0,1) * 255).astype('uint8'))  
         draw1 = ImageDraw.Draw(image_with_labels)
         font = ImageFont.truetype('./utils/TIMES.TTF', size=40) 
@@ -85,7 +89,7 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
             if wandb and (abs(iteration - last_iter) > 500):  # 每500次迭代记录一次
                 if "train" in stage:
                     last_iter = iteration#因为渲染图片是先渲染test的，再渲染train，所以要渲染train的时候再更新last_iter
-                print("save image to wandb")
+                # print("save image to wandb")
                 wandb.log({
                     f"render/{stage}_render": wandb.Image(image_with_labels),
                     "iteration": iteration
@@ -103,7 +107,7 @@ def render_training_image(scene, gaussians, viewpoints, render_func, pipe, backg
 
     for idx in range(len(viewpoints)):
         image_save_path = os.path.join(image_path,f"{iteration}_{idx}.jpg")
-        render(gaussians,viewpoints[idx],image_save_path, iteration, scaling = 1,cam_type=dataset_type)
+        render(gaussians,viewpoints[idx],image_save_path, iteration, scaling = 1,cam_type=dataset_type, opt=opt)
     pc_mask = gaussians.get_opacity
     pc_mask = pc_mask > 0.1
 

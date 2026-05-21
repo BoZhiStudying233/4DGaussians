@@ -18,7 +18,7 @@ def lpips_loss(img1, img2, lpips_model):
     loss = lpips_model(img1,img2)
     return loss.mean()
 def l1_loss(network_output, gt):
-    return torch.abs((network_output - gt)).mean()
+    return torch.abs((network_output - gt))#暂时把求mean去掉了
 
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()

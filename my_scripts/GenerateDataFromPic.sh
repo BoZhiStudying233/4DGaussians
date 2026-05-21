@@ -15,7 +15,7 @@ fi
 # 获取输入参数,base_path为images文件夹的上一层的路径,output_path为输出路径
 INPUT_IMAGE_PATH=$1
 FOLDER_NAME=$(basename $INPUT_IMAGE_PATH)
-OUTPUT_PATH="/data3/dzb/colmap_data/end/$FOLDER_NAME"
+OUTPUT_PATH="/home/dzb/4DGaussians_old/data/my_data/$FOLDER_NAME"
 
 # 创建输出目录
 mkdir -p $OUTPUT_PATH
@@ -60,18 +60,18 @@ colmap stereo_fusion \
     --input_type geometric \
     --output_path $OUTPUT_PATH/dense/fused.ply
 
-colmap poisson_mesher \
-    --input_path $OUTPUT_PATH/dense/fused.ply \
-    --output_path $OUTPUT_PATH/dense/meshed-poisson.ply
+# colmap poisson_mesher \
+#     --input_path $OUTPUT_PATH/dense/fused.ply \
+#     --output_path $OUTPUT_PATH/dense/meshed-poisson.ply
 
-colmap delaunay_mesher \
-    --input_path $OUTPUT_PATH/dense \
-    --output_path $OUTPUT_PATH/dense/meshed-delaunay.ply
+# colmap delaunay_mesher \
+#     --input_path $OUTPUT_PATH/dense \
+#     --output_path $OUTPUT_PATH/dense/meshed-delaunay.ply
 
 
-echo "密集重建完成。"
+# echo "密集重建完成。"
 
-echo "重建结果保存在: $OUTPUT_PATH"
+# echo "重建结果保存在: $OUTPUT_PATH"
 
 # echo "开始进行下采样"
 

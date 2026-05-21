@@ -21,6 +21,8 @@ OptimizationParams = dict(
     coarse_iterations = 4000,
     densify_until_iter = 10_000,
     opacity_reset_interval = 300000,
+
+    attn_scale = 50,
     # grid_lr_init = 0.0016,
     # grid_lr_final = 16,
     # opacity_threshold_coarse = 0.005,

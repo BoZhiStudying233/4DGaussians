@@ -64,14 +64,110 @@ def save_camera_params_to_json(iteration, R, T, json_path="camera_params.json"):
     else:
         print(f"iteration {iteration}的相机参数已存在，跳过保存")
 
+def compute_tv_loss(image, mode='l2'):
+    """
+    Calculate Total Variation (TV) loss for medium MLP.
+    
+    Args:
+        image: Tensor of shape [H, W, C] or [B, H, W, C].
+        mode: 'l1' or 'l2' for L1 or L2-based TV loss.
+    
+    Returns:
+        Scalar TV loss value.
+    """
+    # Calculate pixel differences along height and width
+    h_diff = image[1:, :, :] - image[:-1, :, :]
+    w_diff = image[:, 1:, :] - image[:, :-1, :]
+    
+    if mode == 'l1':
+        loss = torch.abs(h_diff).mean() + torch.abs(w_diff).mean()
+    elif mode == 'l2':
+        loss = torch.sqrt(h_diff.pow(2) + 1e-8).mean() + torch.sqrt(w_diff.pow(2) + 1e-8).mean()
+    else:
+        raise ValueError("mode must be 'l1' or 'l2'")
+    
+    return loss
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, iterations = None, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None):
+# 计算法向量
+def compute_normals(depth):
+    """
+    根据深度图计算法向量。
+
+    Args:
+        depth (torch.Tensor): 深度图，形状为 [H, W]
+
+    Returns:
+        torch.Tensor: 法向量，形状为 [H, W, 3]
+    """
+    # 计算深度图的梯度
+    dx = depth[:, 2:] - depth[:, :-2]
+    dy = depth[2:, :] - depth[:-2, :]
+
+    # 将 dx 和 dy 扩展为 3D 张量进行填充
+    dx = dx.unsqueeze(0)  # 扩展为 [1, H, W]
+    dy = dy.unsqueeze(0)  # 扩展为 [1, H, W]
+
+    dx = torch.nn.functional.pad(dx, (1, 1), mode='replicate')
+    dy = torch.nn.functional.pad(dy, (0, 0, 1, 1), mode='replicate')
+
+    # 移除额外的维度
+    dx = dx.squeeze(0)
+    dy = dy.squeeze(0)
+
+    # 构建法向量
+    x_vec = torch.stack([torch.ones_like(dx), torch.zeros_like(dx), dx], dim=-1)
+    y_vec = torch.stack([torch.zeros_like(dy), torch.ones_like(dy), dy], dim=-1)
+    normals = torch.cross(x_vec, y_vec, dim=-1)
+    normals = torch.nn.functional.normalize(normals, dim=-1)
+    # print("normals.shape:",normals.shape)
+    return normals
+
+
+def compute_sobel_gradient(image):
+    """
+    使用 Sobel 算子计算图像的空间梯度幅值。
+
+    Args:
+        image (torch.Tensor): 输入图像张量，形状可以是 [C, H, W] 或 [B, C, H, W]。
+
+    Returns:
+        torch.Tensor: 梯度幅值张量。
+    """
+    # 确保 image 是 4 维张量 [B, C, H, W]
+    if image.dim() == 3:
+        image = image.unsqueeze(0)  # 添加批次维度
+
+    # 定义 Sobel 算子
+    sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32, device=image.device).unsqueeze(0).unsqueeze(0)
+    sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32, device=image.device).unsqueeze(0).unsqueeze(0)
+
+    # 复制 Sobel 算子以匹配输入通道数
+    sobel_x = sobel_x.repeat(image.shape[1], 1, 1, 1)
+    sobel_y = sobel_y.repeat(image.shape[1], 1, 1, 1)
+
+    # 计算 x 和 y 方向的梯度
+    grad_x = torch.nn.functional.conv2d(image, sobel_x, padding=1, groups=image.shape[1])
+    grad_y = torch.nn.functional.conv2d(image, sobel_y, padding=1, groups=image.shape[1])
+
+    # 计算梯度幅值
+    gradient_magnitude = torch.sqrt(grad_x ** 2 + grad_y ** 2)
+
+    # 如果之前添加了批次维度，移除它
+    if gradient_magnitude.shape[0] == 1:
+        gradient_magnitude = gradient_magnitude.squeeze(0)
+
+    return gradient_magnitude
+
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, iterations = None, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None, opt = None):
     """
     Render the scene. 
     
     Background tensor (bg_color) must be on GPU!
     """
- 
+    
+    if opt is None:
+        print("请注意, 没传入opt参数")
+
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0  #dtype表示数据类型    +0是为了触发张量的重新计算，确保张量位于正确的设备（GPU）上
     #此变量的目的是为后续的高斯点渲染做准备，确保所有的高斯点在屏幕空间中的位置都能被正确地计算和跟踪其梯度变化。
@@ -103,7 +199,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)#重复时间张量。时间张量会被扩展成一个形状为 (Gaussian点的数量, 1) 的矩阵，这样每个 Gaussian 点都拥有相应的时间信息
     else:
         # raster_settings = viewpoint_camera['camera']#viewpoint_camera是一个复杂的量，好像与scene这个类有关。里面包含了batch_size个camera，每个camera都有自己的属性，
-        time=torch.tensor(viewpoint_camera['time']).to(means3D.device).repeat(means3D.shape[0],1)
+        time = torch.tensor(viewpoint_camera['time']).to(means3D.device).repeat(means3D.shape[0],1)
         
 
 
@@ -131,25 +227,40 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     xx = (xx - cx) / viewpoint_camera.FoVx
     directions = torch.stack([xx, yy, torch.ones_like(xx)], dim=-1)#(x,y,1)
     norms = torch.linalg.norm(directions, dim=-1, keepdim=True)
-    directions = directions / norms
-    directions = directions @ R.T       #也就是将方向向量转换到世界坐标系下
+    directions_in_cam = directions / norms
+    directions = directions_in_cam @ R.T       #也就是将方向向量转换到世界坐标系下
     #colmap出来的R是world2camera，因此需要将其转换为camera2world。但我认为此处应当右乘。
+ 
+
 
     # print("directions.shape:",directions.shape)
     directions_flat = directions.view(-1, 3)
     # print("directions_flat.shape:",directions_flat.shape)
     directions_encoded = pc.direction_encoding(directions_flat)
+    
     # print("time:",time[0][0])
     # print("directions_encoded.shape:",directions_encoded.shape)
+    # assert 
+    # print("time:",time[0][0])
+
+    time_one = time[0][0]
+    time_input = time_one.view(1, 1)  # 变成形状 (1, 1)
+    # time_now = pc.fourier_encode_time(time_input)  # 这时候函数输入正确，返回 (1, 16) 张量
+
+    # print("time_now.shape:",time_now.shape)
     outputs_shape = directions.shape[:-1]
 
-    time_scalar = time[0][0].expand(directions_encoded.shape[0], 1)
-    # print("time_scalar.shape:",time_scalar.shape)
-    directions_encoded_time = torch.cat([directions_encoded, time_scalar], dim=-1)    
-    # print("directions_encoded_time:",directions_encoded_time)
+    # time_scalar = time[0][0].expand(directions_encoded.shape[0], 1)
+    time_expanded = time_input.expand(directions_encoded.shape[0], -1)  # (360000, 16)
+    # print("time_scalar.shape:",time_expanded.shape)
+    # assert False
+    directions_encoded_time = torch.cat([directions_encoded, time_expanded], dim=-1)  
+    # directions_encoded_time=time_expanded+directions_encoded
+    # print("directions_encoded_time.shape:",directions_encoded_time.shape)  
+    medium_base_out = pc.medium_mlp(directions_encoded_time.float())
 
+    # medium_base_out = pc.medium_mlp(directions_encoded.float())#(N, 9)
 
-    medium_base_out = pc.medium_mlp(directions_encoded_time)
  
     # different activations for different outputs
     medium_rgb = (
@@ -157,24 +268,40 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         .view(*outputs_shape, -1)
         .to(directions)
     )
+    # print("medium_rgb.shape:",medium_rgb.shape)
     medium_bs = (
         pc.sigma_activation(medium_base_out[..., 3:6] + pc.medium_density_bias)
         .view(*outputs_shape, -1)
         .to(directions)
     )
+    # print("medium_bs.shape:",medium_bs.shape)
+
     medium_attn = (
         pc.sigma_activation(medium_base_out[..., 6:] + pc.medium_density_bias)
         .view(*outputs_shape, -1)
         .to(directions)
     )
+    # print("medium_attn.shape:",medium_attn.shape)
+
     medium_bs = medium_bs#高斯的遮挡对介质渲染图的削减情况，若值大则削减小。
     medium_rgb = medium_rgb
-    medium_attn = medium_attn
+    if opt is not None:
+        medium_attn = medium_attn / opt.attn_scale
+    else:
+        medium_attn = medium_attn
     # pc.print_MLP_params()
 
-
-
-    # # #当渲染清澈介质（无介质）时候，用此三句话
+    if iterations is not None:#如果在训练阶段，则iterations不为None
+        tv_loss_bs = compute_tv_loss(medium_bs)
+        tv_loss_rgb = compute_tv_loss(medium_rgb)
+        tv_loss_attn = compute_tv_loss(medium_attn)
+    else:
+        tv_loss_bs = None
+        tv_loss_rgb = None
+        tv_loss_attn = None
+    tv_loss = [tv_loss_bs, tv_loss_rgb, tv_loss_attn]
+    # #当渲染清澈介质（无介质）时候，用此三句话
+    # print("介质已置零")
     # medium_rgb = torch.zeros_like(medium_rgb)
     # medium_bs = torch.zeros_like(medium_bs)
     # medium_attn = torch.zeros_like(medium_attn)
@@ -327,64 +454,61 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # print("xys:",xys)
      
     
+    if (("fine" in stage) and (iterations is not None) and (depth_im is not None)) or (iterations is None): #fine且是训练阶段  或  是渲染阶段
+        normals = compute_normals(depth_im)
+        # print("normals.shape:",normals.shape)
+        # assert False
 
-    # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    # time3 = get_time()
-    # rendered_image4D, _, depth = rasterizer(#在PyTorch中，当一个nn.Module类的实例被当作函数调用时，实际上是在调用它的forward方法。
-    #     means3D = means3D_final,
-    #     means2D = means2D,
-    #     shs = shs_final,
-    #     colors_precomp = colors_precomp,
-    #     opacities = opacity,
-    #     scales = scales_final,
-    #     rotations = rotations_final,
-    #     cov3D_precomp = cov3D_precomp)
-    
+        # print("1")
 
+        # 计算相机坐标系下每个像素的方向向量与对应法向量夹角的余弦值
+        cos_angles = torch.sum(directions_in_cam * normals, dim=-1)
+        # print("cos_angles.shape:",cos_angles.shape)
+        cos_angles = torch.abs(cos_angles)**2
+        # angles = torch.acos(cos_angles)
 
-    # time4 = get_time()
-    # print("rasterization:",time4-time3)
-    # breakpoint()
-    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
-    # They will be excluded from value updates used in the splitting criteria.
+        # print("rendered_image:",rendered_image.shape)
 
 
-    # image_vis1 = rendered_image.detach().cpu().numpy()
-    # image_vis2 = rendered_image4D.detach().cpu().permute(1, 2, 0).numpy()
-    # image_vis3 = rgb_medium.detach().cpu().numpy()
-    # image_vis4 = rgb_clear.detach().cpu().numpy()
-    # plt.figure(figsize=(15, 5))
+        rendered_image = rendered_image.permute(2,0,1)
+        rgb_medium = rgb_medium.permute(2,0,1)
+        rgb_clear = rgb_clear.permute(2,0,1)
 
-    # # 创建一个1行3列的子图布局
-    # plt.subplot(1, 4, 1)
-    # plt.imshow(image_vis1)
-    # plt.axis('off')  # 关闭坐标轴
+        # print("rgb_medium:",rgb_medium.shape)
 
-    # plt.subplot(1, 4, 2)
-    # plt.imshow(image_vis2)
-    # plt.axis('off')
+        final_image_gradient = compute_sobel_gradient(rendered_image + rgb_medium)
+        final_image_gradient_sum = (final_image_gradient ** 2).sum(dim=0)
 
-    # plt.subplot(1, 4, 3)
-    # plt.imshow(image_vis3)
-    # plt.axis('off')
+        # print("viewpoint_camera.time:",viewpoint_camera.time)
+        # print("viewpoint_camera.next_image:",   viewpoint_camera.next_image.shape)
 
-    # plt.subplot(1, 4, 4)
-    # plt.imshow(image_vis4)
+        delta_image = viewpoint_camera.next_image - viewpoint_camera.original_image
+        
+        delta_image_gradient_sum = (delta_image ** 2).sum(dim=0)
+        delta_image_gradient_sum = delta_image_gradient_sum.to(final_image_gradient_sum.device)
 
-    # plt.show()
+        # light_uncertainty = delta_image_gradient_sum + final_image_gradient_sum
+        light_uncertainty = delta_image_gradient_sum
+    else:#coarse stage
+        rendered_image = rendered_image.permute(2,0,1)
+        rgb_medium = rgb_medium.permute(2,0,1)
+        rgb_clear = rgb_clear.permute(2,0,1)
+        normals = None
+        cos_angles = None
+        light_uncertainty = None
 
 
-    rendered_image = rendered_image.permute(2,0,1)
-    rgb_medium = rgb_medium.permute(2,0,1)
-    rgb_clear = rgb_clear.permute(2,0,1)
     return {"render_image": rendered_image,
             "rgb_medium": rgb_medium,
             "viewspace_points": xys_grad_abs,
             "visibility_filter" : radii > 0,#visibility_filter用于过滤掉被视锥体裁剪掉的高斯点。看不见的点就不会参与后续的梯度更新。
             "depth_image": depth_im,
             "radii": radii,#radii用于进行高斯密度的更新。
-            "depth":depth_im,
-            "rgb_clear":rgb_clear}
+            "normals":normals,
+            "rgb_clear":rgb_clear,
+            "tv_loss": tv_loss,
+            "cos_angles": cos_angles,
+            "light_uncertainty": light_uncertainty}
 
 
 

@@ -11,3 +11,17 @@ data
 # submodules/ 
 wandb/*
 SIBR_viewers/*
+
+wandb/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.vscode/
+data/
+output/
+*.pth
+*.pt
+*.ckpt
+*.ply
+*.npy
+*.npz

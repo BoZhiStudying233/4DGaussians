@@ -80,7 +80,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     
     progress_bar = tqdm(range(first_iter, final_iter), desc="Training progress")
     first_iter += 1
-    # lpips_model = lpips.LPIPS(net="alex").cuda()
+    lpips_model = lpips.LPIPS(net="alex").cuda()
     video_cams = scene.getVideoCameras()
     test_cams = scene.getTestCameras()
     train_cams = scene.getTrainCameras()
@@ -116,7 +116,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         load_in_memory = False 
                             
     count = 0
-    for iteration in range(first_iter, final_iter+1): #开始训练的循环       
+    for iteration in range(first_iter, final_iter+1): #开始训练的循环  
+        time1 = time()      
         if network_gui.conn == None:
             network_gui.try_connect()
             #print("conneting_gui")
@@ -160,6 +161,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # Pick a random Camera
 
         # dynerf's branch
+        # print("opt.attn_scale:",opt.attn_scale)
+
         if opt.dataloader and not load_in_memory:
             try:
                 viewpoint_cams = next(loader)
@@ -199,14 +202,35 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         visibility_filter_list = []
         viewspace_point_tensor_list = []
         gaussian_images = []
+        uncertainty_images = []
 
-
+        tv_losses = [0, 0, 0]
+        # print("opt.scale:",opt.attn_scale)
         for viewpoint_cam in viewpoint_cams:
-            render_pkg = render(viewpoint_cam, gaussians, pipe, background, iteration,stage=stage,cam_type=scene.dataset_type)#这里是整个光栅化的过程，根据此相机视角生成图像
+            render_pkg = render(viewpoint_cam, gaussians, pipe, background, iteration,stage=stage,cam_type=scene.dataset_type, opt = opt)#这里是整个光栅化的过程，根据此相机视角生成图像
             # print("render_pkg['render_image'].shape:",render_pkg["render_image"].shape,"rgb_medium.shape:",render_pkg["rgb_medium"].shape)
             gaussian_image = render_pkg["render_image"]
-            image, viewspace_point_tensor, visibility_filter, radii, rgb_clear_img = render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"], render_pkg["rgb_clear"]
+            image, viewspace_point_tensor, visibility_filter, radii, rgb_clear_img, tv_loss, depth_image, light_uncertainty, cos_uncertainty= render_pkg["render_image"]+render_pkg["rgb_medium"] , render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"], render_pkg["rgb_clear"], render_pkg["tv_loss"], render_pkg["depth_image"], render_pkg["light_uncertainty"], render_pkg["cos_angles"]
+            
+            if light_uncertainty is not None:
+                uncertainty = light_uncertainty + cos_uncertainty
+                # uncertainty = cos_uncertainty
+                # uncertainty = light_uncertainty
+            else:
+                uncertainty = None
             images.append(image.unsqueeze(0))
+            
+            # print(f"tv_loss[0].requires_grad: {tv_loss[0].requires_grad}")
+    
+            if uncertainty is not None:
+                uncertainty_image = torch.stack([uncertainty] * 3, dim=0)
+                uncertainty_images.append(uncertainty_image.unsqueeze(0))
+            else:
+                uncertainty_images = None
+
+            tv_losses[0] += tv_loss[0]
+            tv_losses[1] += tv_loss[1]
+            tv_losses[2] += tv_loss[2]
             
             rgb_clear_images.append(rgb_clear_img.unsqueeze(0))
             # 在GPU上将depth_image转换为RGB格式
@@ -219,7 +243,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
             if scene.dataset_type!="PanopticSports":
                 gt_image = viewpoint_cam.original_image.cuda()
-                gt_depth_image = viewpoint_cam.depth.cuda()
+                if is_depth:
+                    gt_depth_image = viewpoint_cam.depth.cuda()
                 # gt_depth_image_noramlized = (gt_depth_image - gt_depth_image.min()) / (gt_depth_image.max() - gt_depth_image.min())  # 在GPU上归一化
                 # gt_depth_image_rgb = torch.stack([gt_depth_image_noramlized] * 3, dim=0)  # 在GPU上创建3通道
                 # print("gt_depth_image_rgb:", gt_depth_image_noramlized.shape)
@@ -229,7 +254,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             
 
             gaussian_images.append(gaussian_image.unsqueeze(0))
-            gt_depth_images.append(gt_depth_image.unsqueeze(0))
+            if is_depth:
+                gt_depth_images.append(gt_depth_image.unsqueeze(0))
+            
             gt_images.append(gt_image.unsqueeze(0))
             radii_list.append(radii.unsqueeze(0))
             visibility_filter_list.append(visibility_filter.unsqueeze(0))
@@ -239,16 +266,19 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         visibility_filter = torch.cat(visibility_filter_list).any(dim=0)
         image_tensor = torch.cat(images,0)
         gt_image_tensor = torch.cat(gt_images,0)
-
-        gt_depth_images_tensor = torch.cat(gt_depth_images,0)
+        
+        if is_depth:
+            gt_depth_images_tensor = torch.cat(gt_depth_images,0)
         # depth_images_tensor = torch.cat(depth_images,0)
         # gaussian_images_tensor = torch.cat(gaussian_images,0)
 
+        if uncertainty_images is not None:  
+            uncertainty_images = torch.cat(uncertainty_images,0)
 
         rgb_clear_images_tensor = torch.cat(rgb_clear_images,0)
         # Loss
         # breakpoint() 
-        # Ll1 = l1_loss(image_tensor, gt_image_tensor[:,:3,:,:])
+        Ll1 = l1_loss(image_tensor, gt_image_tensor[:,:3,:,:])
 
         psnr_ = psnr(image_tensor, gt_image_tensor).mean().double()
         # norm
@@ -271,18 +301,39 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         else:
             additional_loss = 0
         # print("Ll1:", Ll1)
-        recon_loss = (((image_tensor - gt_image_tensor) / (image_tensor.detach() + 1e-3)) ** 2).mean()
+        recon_loss =  torch.abs((image_tensor - gt_image_tensor) / (image_tensor.detach() + 1e-3)).mean()
         simloss = 1 - ssim((gt_image_tensor / (image_tensor.detach() + 1e-3)), 
                                 (image_tensor / (image_tensor.detach() + 1e-3)))
 
+        # loss = (1 - 0.2) * recon_loss + 0.2 * simloss + additional_loss + tv_losses[0] + tv_losses[1] + tv_losses[2]
+
+        # print("Ll1:", Ll1.shape)
+        Ll1_squared_sum = (Ll1 ** 2).sum(dim=1, keepdim=False)
+        # print("Ll1_squared_sum:",Ll1_squared_sum.shape)
+        if uncertainty_images is not None:                                               
+            uncertainty_images_sum = uncertainty_images.sum(dim=1, keepdim=False)
+        # print("uncertainty_images_sum:",uncertainty_images_sum.shape)
+
+            uncertainty_loss = ( (Ll1_squared_sum ** 2) / (2*uncertainty_images_sum + 0.0001)).mean()
+        else:
+            uncertainty_loss = 0
+        # print("uncertainty_loss:",uncertainty_loss)
+
         loss = (1 - 0.2) * recon_loss + 0.2 * simloss + additional_loss
+        # loss = (1 - 0.2) * recon_loss + 0.2 * simloss + additional_loss
+
+        # print("loss:", loss)
+
         
+
         # loss = Ll1
         if stage == "fine" and hyper.time_smoothness_weight != 0:
             # tv_loss = 0
             tv_loss = gaussians.compute_regulation(hyper.time_smoothness_weight, hyper.l1_time_planes, hyper.plane_tv_weight)
             loss += tv_loss
-        
+            loss += uncertainty_loss * opt.uncertainty_weight
+
+
         # if opt.lambda_dssim != 0:
         #     ssim_loss = ssim(image_tensor,gt_image_tensor)
         #     loss += opt.lambda_dssim * (1.0-ssim_loss)
@@ -293,18 +344,26 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # if opt.lambda_lpips !=0:
         #     lpipsloss = lpips_loss(image_tensor,gt_image_tensor,lpips_model)
         #     loss += opt.lambda_lpips * lpipsloss
-        # print("loss:",loss.item(),"psnr:",psnr_.item())
-        # # 在优化器step前添加（约第241行附近）
-        # torch.nn.utils.clip_grad_norm_(gaussians.parameters(), max_norm=1.0)
-        # gaussians.optimizer.step()
+
         if wandb.run is not None:
             wandb.log({
                 f"{stage}/train_loss": loss.item(),
                 f"{stage}/train_psnr": psnr_.item(),
                 f"{stage}/train_ssim": ssim(image_tensor,gt_image_tensor),
+                f"{stage}/train_lpips": lpips_loss(image_tensor,gt_image_tensor,lpips_model),
                 "iteration": iteration
             })
         # print("iteration:",iteration)
+
+
+        if torch.isnan(loss).any():
+            print("loss is nan, drop this iteration")
+            # 显式删除 loss 和它的计算图，释放显存
+            del loss
+
+            # 清除未使用的显存缓存（不是必须，但建议）
+            torch.cuda.empty_cache()
+            continue
         loss.backward()
 
         
@@ -312,18 +371,16 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
 
 
-        if torch.isnan(loss).any():
-            print("loss is nan,end training, reexecv program now.")
-            assert False
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+            # os.execv(sys.executable, [sys.executable] + sys.argv)
         viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)
         for idx in range(0, len(viewspace_point_tensor_list)):
             viewspace_point_tensor_grad = viewspace_point_tensor_grad + viewspace_point_tensor_list[idx]
         iter_end.record()
 
         # print("viewspace_point_tensor_grad:",viewspace_point_tensor_grad.shape)
-        if iteration == 600:
-            print("viewspace_point_tensor_grad:",viewspace_point_tensor_grad)
+        # if iteration == 600:
+        #     print("viewspace_point_tensor_grad:",viewspace_point_tensor_grad)
             # assert False
 
 
@@ -348,7 +405,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
             # Log and save
             timer.pause()
-            training_report(tb_writer, iteration, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, [pipe, background], stage, scene.dataset_type, psnr_)
+            training_report(tb_writer, iteration, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, [pipe, background], stage, scene.dataset_type, psnr_, lpips_model, opt=opt)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration, stage)
@@ -358,9 +415,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                         or (iteration < 60000 and iteration %  100 == 99) :
                     # breakpoint()
                         # print("rendering0")
-                        render_training_image(scene, gaussians, [test_cams[ iteration%len(test_cams)]], render, pipe, background, stage+"test", iteration,timer.get_elapsed_time(),scene.dataset_type)#抽取一个视角，然后渲染图片并保存
+                        render_training_image(scene, gaussians, [test_cams[ iteration%len(test_cams)]], render, pipe, background, stage+"test", iteration,timer.get_elapsed_time(),scene.dataset_type, opt=opt)#抽取一个视角，然后渲染图片并保存
                         # print("rendering1")
-                        render_training_image(scene, gaussians, [train_cams[iteration%len(train_cams)]], render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
+                        render_training_image(scene, gaussians, [train_cams[iteration%len(train_cams)]], render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type, opt=opt)
                         # render_training_image(scene, gaussians, train_cams, render, pipe, background, stage+"train", iteration,timer.get_elapsed_time(),scene.dataset_type)
 
                     # total_images.append(to8b(temp_image).transpose(1,2,0))
@@ -381,18 +438,20 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 else:    
                     opacity_threshold = opt.opacity_threshold_fine_init - iteration*(opt.opacity_threshold_fine_init - opt.opacity_threshold_fine_after)/(opt.densify_until_iter)  
                     densify_threshold = opt.densify_grad_threshold_fine_init - iteration*(opt.densify_grad_threshold_fine_init - opt.densify_grad_threshold_after)/(opt.densify_until_iter )  
-                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<180000:#原来是360000
+                # densify_threshold = 0.9#临时改的
+                if  iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0] < get_densify_threshold(stage, opt):#原来是360000
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     # print("iteration: ",iteration," densify")
                     #610轮 38572->38826
                     gaussians.densify(densify_threshold, opacity_threshold, scene.cameras_extent, size_threshold, 5, 5, scene.model_path, iteration, stage)
-                if  iteration > opt.pruning_from_iter and iteration % opt.pruning_interval == 0 and gaussians.get_xyz.shape[0]>40000:
+                if  iteration > opt.pruning_from_iter and iteration % opt.pruning_interval == 0 and gaussians.get_xyz.shape[0] > opt.prune_threshold:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
 
                     gaussians.prune(densify_threshold, opacity_threshold, scene.cameras_extent, size_threshold)
-                    
+                    # print("\n[ITER {}] Saving Gaussians".format(iteration))
+                    # scene.save(iteration, stage)
                 # if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 :
-                if iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0]<60000 and opt.add_point:#原来是360000
+                if iteration % opt.densification_interval == 0 and gaussians.get_xyz.shape[0] < opt.grow_threshold and opt.add_point:#原来是60000
                     gaussians.grow(5,5,scene.model_path,iteration,stage)
                     # torch.cuda.empty_cache()
                 if iteration % opt.opacity_reset_interval == 0:
@@ -401,17 +460,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
 
             #梯度裁剪
-            max_norms = {
-                "xyz": 5.0,           # 位置参数较大梯度
-                "deformation": 1.0,   # 形变MLP参数较小梯度
-                "grid": 2.0,          # 网格参数中等梯度
-                "f_dc": 0.5,          # 颜色参数严格限制
-                "f_rest": 0.5,
-                "opacity": 0.1,       # 透明度参数需谨慎更新
-                "scaling": 1.0,
-                "rotation": 1.0,
-                "medium_mlp": 0.001     # MLP参数单独控制
-            }
+            max_norms = opt.max_norms
+
             for param_group in gaussians.optimizer.param_groups:
                 name = param_group["name"]
                 if name in max_norms:
@@ -425,6 +475,18 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" +f"_{stage}_" + str(iteration) + ".pth")
+            
+            time2 = time()
+            # print("iteration:", iteration, "time:", time2 - time1)#coarse:0.144s   
+def get_densify_threshold(stage, opt):
+    if stage == "coarse":
+        return opt.coarse_densify_threshold
+    elif stage == "fine":
+        return opt.fine_densify_threshold
+    else:
+        raise ValueError("Invalid stage: {}".format(stage))
+
+
 def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, expname, is_depth):#is_depth表示是否启用深度图约束
     # first_iter = 0
 
@@ -472,7 +534,7 @@ def prepare_output_and_logger(expname):    #建立了output的文件夹，存储
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, stage, dataset_type, psnr_):
+def training_report(tb_writer, iteration, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, stage, dataset_type, psnr_, lpips_model, opt=None):
     # if tb_writer:
     #     tb_writer.add_scalar(f'{stage}/train_loss_patches/l1_loss', Ll1.item(), iteration)
     #     tb_writer.add_scalar(f'{stage}/train_loss_patchestotal_loss', loss.item(), iteration)
@@ -482,10 +544,17 @@ def training_report(tb_writer, iteration, loss, l1_loss, elapsed, testing_iterat
     
     # Report test and samples of training set
     if iteration in testing_iterations:
+        # if stage == "coarse":
+            # print("iteration:"  ,iteration)
+            # if (iteration+1)%500 !=0:
+            #     return
+
         torch.cuda.empty_cache()
         # 
         validation_configs = ({'name': 'test', 'cameras' : [scene.getTestCameras()[idx % len(scene.getTestCameras())] for idx in range(10, 5000, 299)]},
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(10, 5000, 299)]})
+
+
 
         for config in validation_configs:
             if config["name"] == "train":
@@ -494,8 +563,9 @@ def training_report(tb_writer, iteration, loss, l1_loss, elapsed, testing_iterat
                 l1_test = 0.0
                 psnr_test = 0.0
                 ssim_test = 0.0
+                lpips_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
-                    result = renderFunc(viewpoint, scene.gaussians,stage=stage, cam_type=dataset_type, *renderArgs)
+                    result = renderFunc(viewpoint, scene.gaussians,stage=stage, cam_type=dataset_type, opt = opt, *renderArgs)
                     image = torch.clamp(result["render_image"] + result["rgb_medium"], 0.0, 1.0)
                     if dataset_type == "PanopticSports":
                         gt_image = torch.clamp(viewpoint["image"].to("cuda"), 0.0, 1.0)
@@ -513,6 +583,7 @@ def training_report(tb_writer, iteration, loss, l1_loss, elapsed, testing_iterat
                     
                     psnr_test += psnr(image, gt_image, mask=None).mean().double()
                     ssim_test += ssim(image, gt_image).mean().double()
+                    lpips_test += lpips_loss(image, gt_image, lpips_model).mean().double()
                     # #保存图片
                     # image = image.cpu().numpy()
                     # gt_image = gt_image.cpu().numpy()
@@ -528,14 +599,17 @@ def training_report(tb_writer, iteration, loss, l1_loss, elapsed, testing_iterat
                 # print("ssim_test:",ssim_test)
                 # assert False
                 l1_test /= len(config['cameras'])
+                lpips_test /= len(config['cameras'])
 
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
+                print("\n[ITER {}] Evaluating {}: SSIM {} LPIPS {}".format(iteration, config['name'], ssim_test, lpips_test))
                 if config['name'] == "test":
                     if wandb.run is not None:
                         wandb.log({
                             f"{stage}/_l1_{config['name']}": l1_test,
                             f"{stage}/_psnr_{config['name']}": psnr_test,
                             f"{stage}/_ssim_{config['name']}": ssim_test,
+                            f"{stage}/_lpips_{config['name']}": lpips_test,
                             "iteration": iteration
                             })
                 # print("sh feature",scene.gaussians.get_features.shape)
@@ -557,7 +631,12 @@ if __name__ == "__main__":
     # torch.set_default_tensor_type('torch.FloatTensor')
     torch.cuda.empty_cache()
     parser = ArgumentParser(description="Training script parameters")
-    setup_seed(6666)
+    parser.add_argument("--unfix_seed", action="store_true", default=False, help="Set fixed random seed")
+    seed_args, _ = parser.parse_known_args()
+    if not seed_args.unfix_seed:
+        print("fixed! seed_args:", seed_args)
+        setup_seed(6666)
+
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
@@ -566,7 +645,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[ i for i in range(99, 20000, 100) ])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[ i for i in range(99, 20000, 1000) ])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 500, 3000, 7000, 14_000, 20_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -575,7 +654,6 @@ if __name__ == "__main__":
     parser.add_argument("--configs", type=str, default = "")
     parser.add_argument("--wandb", action="store_true", default=False)
     parser.add_argument("--depth", action="store_true", default=False)
-
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)

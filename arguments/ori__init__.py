@@ -114,7 +114,7 @@ class OptimizationParams(ParamGroup):
         self.iterations = 30_000#似乎no use
         self.coarse_iterations = 3000#似乎no use
         self.position_lr_init = 0.00016#0.00016
-        self.position_lr_final=5e-5
+        self.position_lr_final = 5e-5#0.0000016
         self.position_lr_delay_mult = 0.01#0.01
         self.position_lr_max_steps = 20_000#20_000
         self.deformation_lr_init = 0.00016#0.00016
@@ -154,25 +154,21 @@ class OptimizationParams(ParamGroup):
         self.densification_interval = 100
         self.densify_from_iter = 500#500
         self.densify_until_iter = 15_000
-        self.densify_grad_threshold_coarse = 0.000002#0.0002
-        self.densify_grad_threshold_fine_init =0.000001
+        self.densify_grad_threshold_coarse = 0.000007#0.0002
+        self.densify_grad_threshold_fine_init = 0.00006
         self.densify_grad_threshold_after = 0.00002#0.0002
         self.pruning_from_iter = 500#500
         self.pruning_interval = 100
-        self.opacity_threshold_coarse = 0.7#0.005
-        self.opacity_threshold_fine_init = 0.005#0.005
-        self.opacity_threshold_fine_after = 0.005#0.005
+        self.opacity_threshold_coarse = 0.0005#0.005
+        self.opacity_threshold_fine_init = 0.0005#0.005
+        self.opacity_threshold_fine_after = 0.0005#0.005
         self.batch_size=2
         self.add_point=False
-        self.uncertainty_weight = 1.0#不确定性loss的系数
-        
-        self.attn_scale = 1#介质输出的削弱系数
-
 
         self.prune_threshold = 40000
-        self.grow_threshold = 800_000
-        self.coarse_densify_threshold = 500_000
-        self.fine_densify_threshold = 600_000
+        self.grow_threshold = 360000
+        self.coarse_densify_threshold = 360000
+        self.fine_densify_threshold = 360000
 
         #梯度裁剪
         self.max_norms = {

@@ -173,6 +173,7 @@ class _RasterizeGaussians(Function):
             )
             if colors.shape[-1] == 3:
                 # print("rasterize_forward")
+                #跑的是这个
                 rasterize_fn = _C.rasterize_forward
             else:
                 # print("nd_rasterize_forward")

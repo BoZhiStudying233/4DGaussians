@@ -36,11 +36,22 @@ class FourDGSdataset(Dataset):
                 time = caminfo.time
     
                 mask = caminfo.mask
-            
-                depth = caminfo.depth_image
+                try:
+                    depth = caminfo.depth_image
+                except:
+                    depth = None
+                try:
+                    next_image = caminfo.next_image
+                except:
+                    if index+1 < len(self.dataset):
+                        temp_caminfo = self.dataset[index+1]
+                        next_image = temp_caminfo.image
+                    else:
+                        temp_caminfo = self.dataset[index-1]
+                        next_image = temp_caminfo.image
             return Camera(colmap_id=index,R=R,T=T,FoVx=FovX,FoVy=FovY,image=image,gt_alpha_mask=None,
                               image_name=f"{index}",uid=index,data_device=torch.device("cuda"),time=time,
-                              mask=mask, depth=depth)
+                              mask=mask, depth=depth, next_image=next_image)
         else:
             return self.dataset[index]
     def __len__(self):

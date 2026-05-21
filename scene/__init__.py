@@ -74,7 +74,7 @@ class Scene:
         self.dataset_type = dataset_type
         self.cameras_extent = scene_info.nerf_normalization["radius"]
         print("Loading Training Cameras")
-        self.train_camera = FourDGSdataset(scene_info.train_cameras, args, dataset_type)
+        self.train_camera = FourDGSdataset(scene_info.train_cameras, args, dataset_type)#scene_info.train_cameras缺了一个next_image属性
         print("Loading Test Cameras")
         self.test_camera = FourDGSdataset(scene_info.test_cameras, args, dataset_type)
         print("Loading Video Cameras")

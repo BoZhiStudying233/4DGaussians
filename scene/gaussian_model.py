@@ -73,8 +73,27 @@ class GaussianModel:
 
 
 
+
         self.setup_functions()
         self.construct_medium_net(model_path)#定义MLP网络结构
+
+    def fourier_encode_time(self, t, num_frequencies=8):
+        # print("num_frequencies:", num_frequencies)
+        # print("t:", t)
+        """
+        输入:
+            t: Tensor of shape (N, 1) — 实数时间标量
+        输出:
+            Tensor of shape (N, 2 * num_frequencies) — sin/cos 编码
+        """
+        freq_bands = 2 ** torch.arange(num_frequencies, device=t.device) * np.pi
+        t_proj = t * freq_bands  # shape: (N, num_freq)
+        sin_enc = torch.sin(t_proj)
+        cos_enc = torch.cos(t_proj)
+        encoding = torch.cat([sin_enc, cos_enc], dim=-1)
+        return encoding
+
+
 
     def construct_medium_net(self, model_path=None):
 
@@ -86,7 +105,8 @@ class GaussianModel:
 
         # print("self.direction_encoding.get_out_dim():",self.direction_encoding.get_out_dim())
         self.medium_mlp = MLP(
-            in_dim=self.direction_encoding.get_out_dim() + 1,#考虑时间维度，这里需要加上1
+            # in_dim=self.direction_encoding.get_out_dim() ,#考虑时间维度，这里需要加上1
+            in_dim=16+1,
             num_layers= 2,
             layer_width= 128,
             out_dim=9,
@@ -245,11 +265,11 @@ class GaussianModel:
             {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
             {'params': list(self._deformation.get_mlp_parameters()), 'lr': training_args.deformation_lr_init * self.spatial_lr_scale, "name": "deformation"},
             {'params': list(self._deformation.get_grid_parameters()), 'lr': training_args.grid_lr_init * self.spatial_lr_scale, "name": "grid"},
-            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
-            {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
-            {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
-            {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
+            {'params': [self._features_dc], 'lr': training_args.feature_lr_init, "name": "f_dc"},
+            {'params': [self._features_rest], 'lr': training_args.feature_lr_init / 20.0, "name": "f_rest"},
+            {'params': [self._opacity], 'lr': training_args.opacity_lr_init, "name": "opacity"},
+            {'params': [self._scaling], 'lr': training_args.scaling_lr_init, "name": "scaling"},
+            {'params': [self._rotation], 'lr': training_args.rotation_lr_init, "name": "rotation"},
             #添加MLP参数
             {'params': self.medium_mlp.parameters(), 'lr': training_args.medium_MLP_lr_init*self.spatial_lr_scale, "name": "medium_mlp"}
 
@@ -272,7 +292,38 @@ class GaussianModel:
                                                     lr_final=training_args.medium_MLP_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.medium_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps)    
+        
+        self.features_dc_scheduler_args = get_expon_lr_func(lr_init=training_args.feature_lr_init*self.spatial_lr_scale,
+                                                    lr_final=training_args.feature_lr_final*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.feature_lr_delay_mult,
+                                                    max_steps=training_args.position_lr_max_steps)
+        self.opacities_scheduler_args = get_expon_lr_func(lr_init=training_args.opacity_lr_init*self.spatial_lr_scale,
+                                                    lr_final=training_args.opacity_lr_final*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.opacity_lr_delay_mult,
+                                                    max_steps=training_args.position_lr_max_steps)
+        self.scales_scheduler_args = get_expon_lr_func(lr_init=training_args.scaling_lr_init*self.spatial_lr_scale,
+                                                    lr_final=training_args.scaling_lr_final*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.scaling_lr_delay_mult,
+                                                    max_steps=training_args.position_lr_max_steps)
+        self.rotation_scheduler_args = get_expon_lr_func(lr_init=training_args.rotation_lr_init*self.spatial_lr_scale,
+                                                    lr_final=training_args.rotation_lr_final*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.rotation_lr_delay_mult,
+                                                    max_steps=training_args.position_lr_max_steps)
+        
 
+    def reset_medium_mlp_adam_state(self):
+        for group in self.optimizer.param_groups:
+            if group['name'] == 'medium_mlp':
+                print("find it!")
+                for p in group['params']:
+                    print("clearing~~")
+                    state = self.optimizer.state[p]
+                    # 清空一阶矩估计
+                    # state['step'] = 0
+                    state['exp_avg'].zero_()
+                    # 清空二阶矩估计
+                    state['exp_avg_sq'].zero_()
+                break
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
         if wandb.run is not None:  # 确保wandb已初始化
@@ -302,6 +353,34 @@ class GaussianModel:
                 param_group['lr'] = lr
                 if wandb.run is not None:
                     lr_dict["medium_mlp_lr"] = lr
+
+            elif param_group["name"] == "f_dc":
+                lr = self.features_dc_scheduler_args(iteration)
+                param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["f_dc_lr"] = lr
+            elif param_group["name"] == "f_rest":
+                lr = self.features_dc_scheduler_args(iteration) / 20.0
+                param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["f_rest_lr"] = lr
+            elif param_group["name"] == "opacity":
+                lr = self.opacities_scheduler_args(iteration)
+                param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["opacity_lr"] = lr
+            elif param_group["name"] == "scaling":
+                lr = self.scales_scheduler_args(iteration)
+                param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["scaling_lr"] = lr
+            elif param_group["name"] == "rotation":
+                lr = self.rotation_scheduler_args(iteration)
+                param_group['lr'] = lr
+                if wandb.run is not None:
+                    lr_dict["rotation_lr"] = lr
+                
+
             if wandb.run is not None:
                 lr_dict["iteration"] = iteration
                 wandb.log(lr_dict)
@@ -570,6 +649,8 @@ class GaussianModel:
         new_deformation_table = self._deformation_table[selected_pts_mask]
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_deformation_table)
 
+
+
     @property
     def get_aabb(self):
         return self._deformation.get_aabb
@@ -619,6 +700,9 @@ class GaussianModel:
         # print("Hello?")
         self.densify_and_clone(grads, max_grad, extent, density_threshold, displacement_scale, model_path, iteration, stage)
         self.densify_and_split(grads, max_grad, extent)
+        # self.reset_medium_mlp_adam_state()#
+
+
     def standard_constaint(self):
         
         means3D = self._xyz.detach()

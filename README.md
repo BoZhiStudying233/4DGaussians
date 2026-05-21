@@ -1,6 +1,6 @@
-# 4D Gaussian Splatting for Real-Time Dynamic Scene Rendering
+# UDF
 
-## CVPR 2024
+## ICLR 2026
 
 ### [Project Page](https://guanjunwu.github.io/4dgs/index.html)| [arXiv Paper](https://arxiv.org/abs/2310.08528)
 
@@ -164,9 +164,13 @@ python scripts/downsample_point.py data/hypernerf/virg/broom2/colmap/dense/works
 # Finally, train.
 python train.py -s  data/hypernerf/virg/broom2/ --port 6017 --expname "hypernerf/broom2" --configs arguments/hypernerf/broom2.py 
 
-
-
 python train.py -s data/my_data/coral/ --port 6018 --expname my_data/coral  --configs arguments/hypernerf/default.py --wandb
+
+python train.py -s data/my_data/coral/ --port 6018 --expname rebuttal/coral  --configs arguments/hypernerf/default.py
+
+python train.py -s data/my_data/turtle/ --port 6018 --expname my_data/turtle  --configs arguments/hypernerf/turtle.py --wandb
+python train.py -s data/my_data/A11/ --port 6019 --expname my_data/A11  --configs arguments/hypernerf/A11.py
+
 ```
 
 For training multipleviews scenes,you are supposed to build a configuration file named (you dataset name).py under "./arguments/mutipleview",after that,run
@@ -208,7 +212,8 @@ Run the following script to render the images.
 ```
 python render.py --model_path "output/dnerf/bouncingballs/"  --skip_train --configs arguments/dnerf/bouncingballs.py 
 
-python render.py --model_path "output/my_data/turtle" --configs arguments/hypernerf/default.py
+python render.py --model_path "output/depth4/composite" --configs arguments/hypernerf/default.py
+python render.py --model_path output/new/A1/ --configs arguments/hypernerf/default.py --skip_train --skip_test
 ```
 
 ## Evaluation

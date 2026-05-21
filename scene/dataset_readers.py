@@ -483,7 +483,7 @@ def readdynerfInfo(datadir,use_bg_points,eval):
                            video_cameras=val_cam_infos,
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path,
-                           maxtime=300
+                           maxtime=300,
                            )
     return scene_info
 
@@ -514,6 +514,7 @@ def setup_camera(w, h, k, w2c, near=0.01, far=100):
     )
     return cam
 def plot_camera_orientations(cam_list, xyz):
+    return ;
     import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
